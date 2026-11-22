@@ -546,3 +546,52 @@ private func tempDir() throws -> String {
         #expect(try s.recentFiles().map(\.path) == ["/x/b.txt"])
     }
 }
+
+@Suite struct PreviewTests {
+    private func tmp(_ name: String, _ data: Data) -> String {
+        let dir = NSTemporaryDirectory() + "pv-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let p = dir + "/" + name
+        FileManager.default.createFile(atPath: p, contents: data)
+        return p
+    }
+    @Test func kinds() {
+        #expect(Preview.kind(forName: "a.MD") == .markdown)
+        #expect(Preview.kind(forName: "a.png") == .image)
+        #expect(Preview.kind(forName: "a.swift") == .text)
+        if case .unsupported = Preview.kind(forName: "a.zip") {} else { Issue.record("zip should be unsupported") }
+    }
+    @Test func binaryDetection() {
+        #expect(Preview.looksBinary(Data([0x68, 0x00, 0x69])))
+        #expect(!Preview.looksBinary(Data("héllo".utf8)))
+        #expect(Preview.looksBinary(Data([0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa])))
+    }
+    @Test func textIsCappedAt64KB() {
+        let p = tmp("big.txt", Data(String(repeating: "a", count: 100_000).utf8))
+        guard case .text(let t) = Preview.loadText(path: p, size: 100_000) else { Issue.record("expected text"); return }
+        #expect(t.truncated)
+        #expect(t.text.utf8.count <= Preview.textCap)
+    }
+    @Test func overOneMegabyteNeedsAClick() {
+        let p = tmp("huge.txt", Data(String(repeating: "a", count: 1_100_000).utf8))
+        #expect(Preview.loadText(path: p, size: 1_100_000) == .needsClick(size: 1_100_000))
+        if case .text = Preview.loadText(path: p, size: 1_100_000, allowLarge: true) {} else { Issue.record("allowLarge should read") }
+    }
+    @Test func secretsAreWithheldUntilShown() {
+        let p = tmp(".env", Data("A=1\n".utf8))
+        if case .withheld = Preview.loadText(path: p, size: 4) {} else { Issue.record("a .env file should be withheld") }
+        if case .text = Preview.loadText(path: p, size: 4, showSecrets: true) {} else { Issue.record("Show Anyway should read it") }
+        let q = tmp("notes.txt", Data("password = hunter2hunter2hunter2\n".utf8))
+        if case .withheld = Preview.loadText(path: q, size: 40) {} else { Issue.record("a password line should be withheld") }
+        let r = tmp("plain.txt", Data("just notes\n".utf8))
+        if case .text = Preview.loadText(path: r, size: 11) {} else { Issue.record("plain text should show") }
+    }
+    @Test func binaryFileIsRejected() {
+        let p = tmp("x.dat", Data([0x00, 0x01, 0x02, 0x03]))
+        #expect(Preview.loadText(path: p, size: 4) == .unsupported("Binary file"))
+    }
+    @Test func markdownBlocks() {
+        let b = MarkdownBlocks.parse("# Title\n\nSome *text*\nmore\n\n- one\n- two\n\n```\ncode\n```\n---\n")
+        #expect(b == [.heading(1, "Title"), .paragraph("Some *text* more"), .bullet("one"), .bullet("two"), .code("code"), .rule])
+    }
+}

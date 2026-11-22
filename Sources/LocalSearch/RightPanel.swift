@@ -1,33 +1,42 @@
 import SwiftUI
 import FinderCore
 
-/// Right panel: Vertical Tabs and Recent Locations, each toggled on its own.
+/// Right panel: Vertical Tabs, Recent Locations and Info & Preview, each toggled on its own.
+/// Recent Locations flexes; Tabs sits on top and Info & Preview at the bottom, each with a draggable height.
 struct RightPanel: View {
     @Environment(AppModel.self) private var model
     @AppStorage("showVerticalTabs") private var showTabs = false
     @AppStorage("showRecent") private var showRecent = false
+    @AppStorage("showInfo") private var showInfo = false
     @AppStorage("tabsPaneHeight") private var tabsHeight = 220.0
+    @AppStorage("infoPaneHeight") private var infoHeight = 320.0
     var body: some View {
         GeometryReader { geo in
+            let total = geo.size.height
+            let tabsFixed = showTabs && (showRecent || showInfo)
+            let infoFixed = showInfo && showRecent
+            let tabsMax = max(total - 120 - (infoFixed ? min(max(infoHeight, 120), total - 200) : 0), 80)
+            let infoMax = max(total - 120 - (tabsFixed ? min(max(tabsHeight, 80), tabsMax) : 0), 120)
             VStack(spacing: 0) {
-                if showTabs && showRecent {
-                    VerticalTabsPane().frame(height: min(max(tabsHeight, 80), max(geo.size.height - 120, 80)))
-                    PaneDivider(height: $tabsHeight, maxHeight: max(geo.size.height - 120, 80))
-                    RecentPane()
-                } else if showTabs {
-                    VerticalTabsPane()
-                } else if showRecent {
-                    RecentPane()
+                if showTabs {
+                    if tabsFixed { VerticalTabsPane().frame(height: min(max(tabsHeight, 80), tabsMax)) } else { VerticalTabsPane() }
+                }
+                if showTabs && (showRecent || showInfo) { PaneDivider(height: $tabsHeight, maxHeight: tabsMax) }
+                if showRecent { RecentPane() }
+                if showRecent && showInfo { PaneDivider(height: $infoHeight, maxHeight: infoMax, inverted: true) }
+                if showInfo {
+                    if infoFixed { InfoPreviewPane().frame(height: min(max(infoHeight, 120), infoMax)) } else { InfoPreviewPane() }
                 }
             }
         }
     }
 }
 
-/// Horizontal splitter between the two panes; drag it up or down.
+/// Horizontal splitter between two panes; drag it up or down.
 struct PaneDivider: View {
     @Binding var height: Double
     let maxHeight: Double
+    var inverted = false
     @State private var start: Double?
     var body: some View {
         Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
@@ -37,7 +46,8 @@ struct PaneDivider: View {
                     .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                         .onChanged { v in
                             if start == nil { start = height }
-                            height = min(max((start ?? height) + v.translation.height, 80), maxHeight)
+                            let dy = inverted ? -v.translation.height : v.translation.height
+                            height = min(max((start ?? height) + dy, inverted ? 120 : 80), maxHeight)
                         }
                         .onEnded { _ in start = nil })
             }

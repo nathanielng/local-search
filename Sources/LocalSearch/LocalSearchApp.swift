@@ -24,6 +24,7 @@ struct AppCommands: Commands {
     @AppStorage("lsColors") private var lsColors = false
     @AppStorage("showVerticalTabs") private var showVerticalTabs = false
     @AppStorage("showRecent") private var showRecent = false
+    @AppStorage("showInfo") private var showInfo = false
     @Environment(\.openWindow) private var openWindow
     private var editingText: Bool { NSApp.keyWindow?.firstResponder is NSText }
     var body: some Commands {
@@ -90,6 +91,7 @@ struct AppCommands: Commands {
             }
             Button(showVerticalTabs ? "Hide Vertical Tabs" : "Show Vertical Tabs") { showVerticalTabs.toggle() }.keyboardShortcut("v", modifiers: [.command, .control])
             Button(showRecent ? "Hide Recent Locations" : "Show Recent Locations") { showRecent.toggle() }.keyboardShortcut("r", modifiers: [.command, .control])
+            Button(showInfo ? "Hide Info & Preview" : "Show Info & Preview") { showInfo.toggle() }.keyboardShortcut("i", modifiers: [.command, .option])
             Button(lsColors ? "Hide File Colours" : "Show File Colours") { lsColors.toggle() }.keyboardShortcut("k", modifiers: [.command, .control])
             Button(showKindBadges ? "Hide Kind Badges" : "Show Kind Badges") {
                 showKindBadges.toggle(); if !showKindBadges { model.clearKindFilter() }
