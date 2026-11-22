@@ -42,6 +42,8 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 
 ## Not yet tested by hand
 
+- Kind badges (tag button in the path bar, ⌃⌘B, View menu): strip with a count per kind; click to filter, click again or "Show all" to clear (checked by the assistant on Desktop); the filter applies only in the tab and folder where it was set
+
 - Click a column header to sort by it and click again to reverse (checked by the assistant on Size); the arrow button at the top right removes all sorting
 
 - Multi-row tabs (up to 3 rows, then scrolls): wrapping checked by the assistant with 18 tabs; reordering and drop targets across rows need your test

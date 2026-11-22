@@ -21,6 +21,18 @@ final class AppModel {
     var copyJob: CopyJob?
     var undoStack: [UndoRecord] = []
     var showQuickFind = false
+    /// Kind badge filter: applies only in the tab and folder where it was chosen.
+    var kindFilter: Set<String> = []
+    var kindFilterTab: UUID?
+    var kindFilterPath = ""
+    var kindFilterActive: Bool { !kindFilter.isEmpty && kindFilterTab == selectedTabID && kindFilterPath == current.path }
+
+    func toggleKind(_ kind: String) {
+        if !kindFilterActive { kindFilter = [] }
+        if kindFilter.contains(kind) { kindFilter.remove(kind) } else { kindFilter.insert(kind) }
+        kindFilterTab = selectedTabID; kindFilterPath = current.path
+    }
+    func clearKindFilter() { kindFilter = [] }
     var networkLocations: [NetworkLocation] = []
     var connecting: String?
     @ObservationIgnored var pendingSelection: String?
@@ -59,6 +71,7 @@ final class AppModel {
     var current: TabState { tabs[tabIndex ?? 0] }
     var sortedEntries: [FileEntry] {
         let t = current
+        let entries = kindFilterActive ? self.entries.filter { kindFilter.contains($0.kind) } : self.entries
         let asc = t.sortAscending
         if t.sortKey == "none" { return entries } // no sorting: the order the folder lists in
         let items = entries.sorted { a, b in

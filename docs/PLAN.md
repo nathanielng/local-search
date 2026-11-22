@@ -22,7 +22,7 @@ The full brief lives in `finder-prompt.md` (kept outside the repo). This file tr
 
 ## Next
 
-1. Kind badges, ls-style colours. (Group by Date and multi-row tabs: done.)
+1. ls-style colours. (Group by Date, multi-row tabs and Kind badges: done.)
 2. Right panel: Vertical Tabs, Recent Locations, Info & Preview.
 3. Projects, Cloud, Web Locations; `settings.json` watching.
 4. Command panel and `actions.json`.

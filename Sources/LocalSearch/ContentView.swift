@@ -5,6 +5,7 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
     @AppStorage("showSidebar") private var showSidebar = true
     @AppStorage("sidebarWidth") private var sidebarWidth = 112.0
+    @AppStorage("showKindBadges") private var showKindBadges = false
 
     var body: some View {
         content.overlay { if model.showQuickFind { QuickFindView() } }
@@ -21,6 +22,7 @@ struct ContentView: View {
                 Divider()
                 NavBar()
                 Divider()
+                if showKindBadges { KindBadgeBar(); Divider() }
                 FileListView()
                 if let job = model.copyJob {
                     HStack {
@@ -141,6 +143,7 @@ struct TabButton: View {
 
 struct NavBar: View {
     @Environment(AppModel.self) private var model
+    @AppStorage("showKindBadges") private var showKindBadges = false
     @State private var text = ""
     @FocusState private var focused: Bool
 
@@ -155,6 +158,9 @@ struct NavBar: View {
             TextField("Path", text: $text)
                 .textFieldStyle(.roundedBorder).focused($focused)
                 .onSubmit { model.navigate(text, .typed); focused = false }
+            Button { showKindBadges.toggle(); if !showKindBadges { model.clearKindFilter() } } label: {
+                Image(systemName: showKindBadges ? "tag.fill" : "tag")
+            }.help("Show or hide Kind badges: filter this folder by type")
             Button { model.toggleFavorite() } label: {
                 Image(systemName: model.store?.isFavorite(model.current.path) == true ? "star.fill" : "star")
             }
@@ -162,6 +168,34 @@ struct NavBar: View {
         .buttonStyle(.borderless).padding(6)
         .onChange(of: model.current.path, initial: true) { _, p in text = p }
         .onChange(of: model.showAddressField) { _, v in if v { focused = true; model.showAddressField = false } }
+    }
+}
+
+/// One badge per kind in the folder ("Folder 12", "Markdown 4"); click to show only those kinds.
+struct KindBadgeBar: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let counts = Dictionary(grouping: model.entries, by: \.kind).mapValues(\.count)
+        let kinds = counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+        let active = model.kindFilterActive
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                if active {
+                    Button { model.clearKindFilter() } label: { Label("Show all", systemImage: "xmark.circle.fill").font(.caption) }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                }
+                ForEach(kinds, id: \.key) { kind, n in
+                    let on = active && model.kindFilter.contains(kind)
+                    Button { model.toggleKind(kind) } label: {
+                        Text("\(kind) \(n)").font(.caption).padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(on ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.15), in: Capsule())
+                            .overlay { if on { Capsule().stroke(Color.accentColor) } }
+                    }.buttonStyle(.plain)
+                }
+                if kinds.isEmpty { Text("No files").font(.caption).foregroundStyle(.secondary) }
+            }.padding(.horizontal, 8).padding(.vertical, 5)
+        }
     }
 }
 
