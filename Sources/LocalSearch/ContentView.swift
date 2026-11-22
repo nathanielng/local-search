@@ -123,8 +123,8 @@ struct SidebarView: View {
         let s = model.store
         let home = AppPaths.home
         List {
-            section("Special Folders", items: ((try? s?.specialFolders()) ?? []).map { ($0.title, $0.path, "bolt.fill") }, source: .special)
-            section("Favorites", items: ((try? s?.favorites()) ?? []).map { ($0.title, $0.path, "star") }, source: .favorite)
+            section("Special Folders", reorder: "special", items: ((try? s?.specialFolders()) ?? []).map { ($0.title, $0.path, "bolt.fill") }, source: .special)
+            section("Favorites", reorder: "favorites", items: ((try? s?.favorites()) ?? []).map { ($0.title, $0.path, "star") }, source: .favorite)
             section("Locations", items: [("Home", home, "house"), ("Macintosh HD", "/", "internaldrive"),
                                          ("Volumes", "/Volumes", "externaldrive"), ("Trash", "\(home)/.Trash", "trash")], source: .sidebar)
             section("Config", items: [".kiro", ".claude", ".aws", ".ssh"].map { ($0, "\(home)/\($0)", "gearshape") }, source: .sidebar)
@@ -133,7 +133,7 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func section(_ title: String, items: [(String, String, String)], source: NavSource) -> some View {
+    private func section(_ title: String, reorder: String? = nil, items: [(String, String, String)], source: NavSource) -> some View {
         let isOpen = !collapsed.contains(title)
         Section(isExpanded: Binding(get: { isOpen }, set: { open in
             var c = collapsed; if open { c.remove(title) } else { c.insert(title) }
@@ -149,7 +149,8 @@ struct SidebarView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).opacity(exists ? 1 : 0.4)
-                .folderDropTarget(model, path: item.1, mode: title == "Favorites" ? .shortcutOrMove : .moveInto)
+                .reorderDragSource(section: reorder, path: item.1)
+                .folderDropTarget(model, path: item.1, mode: title == "Favorites" ? .shortcutOrMove : .moveInto, section: reorder)
                 .listRowInsets(EdgeInsets())
                 .contextMenu {
                     Button("Open in New Tab") { model.newTab(path: item.1) }

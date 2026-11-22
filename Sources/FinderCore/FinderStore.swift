@@ -28,12 +28,24 @@ public final class FinderStore: @unchecked Sendable {
 
     private func migrate() throws {
         let v = try db.query("PRAGMA user_version").first?["user_version"]?.int ?? 0
+        defer { try? fixLegacySeeds() }
         guard v < Int64(Self.schemaVersion) else { return }
         try db.transaction {
             for sql in Self.schema { try db.exec(sql) }
             try db.exec("PRAGMA user_version = \(Self.schemaVersion)")
         }
         if v == 0 { try seedDefaults() }
+    }
+
+    static var REMOVED: String { "\(AppPaths.home)/REMOVED_PATH" }
+
+    /// One-time fixes to rows that earlier versions seeded wrongly.
+    private func fixLegacySeeds() throws {
+        guard kv("fix_notes_vault_path") == nil else { return }
+        let old = "\(AppPaths.home)/REMOVED_PATH"
+        try db.exec("UPDATE OR IGNORE special_folders SET path=? WHERE path=? AND title='notes'",
+                    [.text(Self.REMOVED), .text(old)])
+        setKV("fix_notes_vault_path", "1")
     }
 
     static let schema = [
@@ -76,8 +88,7 @@ public final class FinderStore: @unchecked Sendable {
             try addFavorite(path: "\(h)/\(n)", title: n, position: i)
         }
         try addFavorite(path: "/Applications", title: "Applications", position: 3)
-        let vault = "\(h)/REMOVED_PATH"
-        try db.exec("INSERT OR IGNORE INTO special_folders(path,title,position) VALUES(?,?,0)", [.text(vault), "notes"])
+        try db.exec("INSERT OR IGNORE INTO special_folders(path,title,position) VALUES(?,?,0)", [.text(Self.REMOVED), "notes"])
         try db.exec("INSERT OR IGNORE INTO special_folders(path,title,position) VALUES(?,?,1)", [.text("\(h)/media"), "media"])
     }
 
@@ -214,6 +225,31 @@ public final class FinderStore: @unchecked Sendable {
             try db.exec("DELETE FROM favorites")
             for (i, o) in order.enumerated() {
                 try db.exec("INSERT INTO favorites(path,title,position) VALUES(?,?,?)", [.text(o.0), .text(o.1), .int(Int64(i))])
+            }
+        }
+        return true
+    }
+
+    /// Reorder by dragging: put `path` just before or after `target` within the same list.
+    @discardableResult
+    public func moveFavorite(_ path: String, relativeTo target: String, after: Bool) throws -> Bool {
+        try reorder("favorites", path, target, after)
+    }
+
+    @discardableResult
+    public func moveSpecialFolder(_ path: String, relativeTo target: String, after: Bool) throws -> Bool {
+        try reorder("special_folders", path, target, after)
+    }
+
+    private func reorder(_ table: String, _ path: String, _ target: String, _ after: Bool) throws -> Bool {
+        var order = try items(table).map(\.path)
+        guard path != target, order.contains(path), order.contains(target) else { return false }
+        order.removeAll { $0 == path }
+        let i = order.firstIndex(of: target)!
+        order.insert(path, at: after ? i + 1 : i)
+        try db.transaction {
+            for (n, p) in order.enumerated() {
+                try db.exec("UPDATE \(table) SET position=? WHERE path=?", [.int(Int64(n)), .text(p)])
             }
         }
         return true

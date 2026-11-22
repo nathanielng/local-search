@@ -283,6 +283,14 @@ final class AppModel {
         sidebarVersion += 1
     }
 
+    /// Drag a sidebar shortcut to a new place in its own list.
+    func reorderSidebar(section: String, path: String, relativeTo target: String, after: Bool) {
+        let ok = section == "favorites"
+            ? (try? store?.moveFavorite(path, relativeTo: target, after: after))
+            : (try? store?.moveSpecialFolder(path, relativeTo: target, after: after))
+        if ok == true { sidebarVersion += 1 }
+    }
+
     func removeFavorite(_ path: String) {
         try? store?.removeFavorite(path: path)
         sidebarVersion += 1

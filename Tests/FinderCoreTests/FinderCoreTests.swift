@@ -87,6 +87,33 @@ private func tempStore() throws -> FinderStore {
         try s.insertFavorite(path: "/new", after: nil) // existing stays put
         #expect(try s.favorites().filter { $0.path == "/new" }.count == 1)
     }
+    @Test func reorderFavoritesAndSpecialFolders() throws {
+        let s = try tempStore()
+        let h = AppPaths.home
+        let start = try s.favorites().map(\.path)
+        #expect(start == ["\(h)/Desktop", "\(h)/Documents", "\(h)/Downloads", "/Applications"])
+        try s.moveFavorite("/Applications", relativeTo: "\(h)/Desktop", after: false)
+        #expect(try s.favorites().map(\.path).first == "/Applications")
+        try s.moveFavorite("/Applications", relativeTo: "\(h)/Downloads", after: true)
+        #expect(try s.favorites().map(\.path) == ["\(h)/Desktop", "\(h)/Documents", "\(h)/Downloads", "/Applications"])
+        try s.moveFavorite("\(h)/Desktop", relativeTo: "\(h)/Documents", after: true)
+        #expect(try s.favorites().map(\.path).prefix(2) == ["\(h)/Documents", "\(h)/Desktop"])
+        #expect(try s.moveFavorite("/nope", relativeTo: "/Applications", after: true) == false)
+        #expect(try s.moveFavorite("/Applications", relativeTo: "/Applications", after: true) == false)
+        try s.moveSpecialFolder("\(h)/media", relativeTo: try s.specialFolders()[0].path, after: false)
+        #expect(try s.specialFolders().first?.title == "media")
+    }
+    @Test func notesPointsAtTheVaultAndOldRowsAreFixed() throws {
+        let path = NSTemporaryDirectory() + "af-\(UUID().uuidString).sqlite"
+        let s = try FinderStore(path: path)
+        #expect(try s.specialFolders().first?.path.hasSuffix("/REMOVED/Documents/REMOVED") == true)
+        // simulate a database seeded by an earlier version
+        let old = AppPaths.home + "/REMOVED_PATH"
+        try s.db.exec("UPDATE special_folders SET path=? WHERE title='notes'", [.text(old)])
+        s.deleteKV("fix_notes_vault_path")
+        let again = try FinderStore(path: path)
+        #expect(try again.specialFolders().first?.path.hasSuffix("/Documents/REMOVED") == true)
+    }
     @Test func schemaVersion() throws {
         let s = try tempStore()
         #expect(try s.db.query("PRAGMA user_version").first?["user_version"]?.int == 6)

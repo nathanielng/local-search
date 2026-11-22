@@ -2,7 +2,7 @@
 
 Scratch setup: `mkdir -p ~/Desktop/ls-test/{a,b} && cd ~/Desktop/ls-test && echo one > a/f.txt && echo two > b/f.txt && echo hi > note.md`
 
-Unit tests: `scripts/test.sh` (31 tests). Everything below is checked by hand in the running app by the
+Unit tests: `scripts/test.sh` (33 tests). Everything below is checked by hand in the running app by the
 owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 
 ## Verified
@@ -26,12 +26,14 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 | Folder on the middle of a Favorites row | Moves into that favorite |
 | ⌥⌘V Move Item Here | Moves the copied files into the current folder |
 | History window (⌘Y) | Tabs, search, export, delete and Clear work |
+| Reorder sidebar rows | Dragging Favorites and Special Folders rows reorders them (blue bar shows where); the order survives relaunch; plain clicks on rows still navigate; folder drops on favorites still work |
 | Tab reorder | Dragging a tab to the front and, via the end-of-row target, to the very end; a bar shows where it lands |
 | Redo (⇧⌘Z) | Move: ⌘Z then ⇧⌘Z re-applies it; copy: ⌘Z trashes the copy and ⇧⌘Z restores it; rename; menu shows "Redo <action>" |
 | History symbols | 📋 copy, ➡️ move, 🗑️ trash, ✏️ rename, ➕ create shown in the History window |
 
 ## Not yet tested by hand
 
+- The notes special folder now points at `…/Documents/REMOVED` (check the row opens the vault)
 - Dropping a file onto a tab (moves into the tab's folder)
 - Dragging into Slack specifically; a browser upload field
 - Dropping a file on a Locations or Config row
@@ -40,7 +42,7 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 
 ## Known gaps
 
-- Favorites cannot be reordered by dragging yet (in the spec).
+- Locations and Config rows are not reorderable (they come from fixed lists / settings.json, not the database).
 
 ## Bugs found and fixed during testing
 

@@ -26,6 +26,8 @@ struct FolderDropDelegate: DropDelegate {
     let model: AppModel
     let path: String
     let mode: Mode
+    /// "favorites" or "special" when this row's list can be reordered by dragging its rows.
+    var section: String?
     var rowHeight: CGFloat = 0
     let setState: (Bool, DropZone) -> Void
 
@@ -38,25 +40,47 @@ struct FolderDropDelegate: DropDelegate {
         }
     }
 
+    static let reorderPrefix = "lsrow:"
+
+    /// A sidebar row being dragged (text payload), as opposed to files.
+    func isReorder(_ info: DropInfo) -> Bool {
+        section != nil && !info.hasItemsConforming(to: [.fileURL]) && info.hasItemsConforming(to: [.plainText])
+    }
+
     func zone(_ info: DropInfo) -> DropZone {
+        if isReorder(info) { return rowHeight > 0 && info.location.y < rowHeight / 2 ? .before : .after }
         guard mode == .shortcutOrMove, rowHeight > 0, Self.draggedAreAllFolders() else { return .into }
         let y = info.location.y
         return y < rowHeight * 0.3 ? .before : (y > rowHeight * 0.7 ? .after : .into)
     }
 
-    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.fileURL]) }
+    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.fileURL]) || isReorder(info) }
     func dropEntered(info: DropInfo) { setState(true, zone(info)) }
     func dropExited(info: DropInfo) { setState(false, .into) }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         setState(true, zone(info))
+        if isReorder(info) { return DropProposal(operation: .move) }
         let option = NSEvent.modifierFlags.contains(.option)
         return DropProposal(operation: (mode == .copyIntoCurrent || option) ? .copy : .move)
     }
 
     func performDrop(info: DropInfo) -> Bool {
         let zone = zone(info)
+        let reorder = isReorder(info)
         setState(false, .into)
+        if reorder, let section, let p = info.itemProviders(for: [.plainText]).first {
+            let model = model, target = path
+            Task { @MainActor in
+                let text: String? = await withCheckedContinuation { c in
+                    _ = p.loadObject(ofClass: String.self) { s, _ in c.resume(returning: s) }
+                }
+                guard let text, text.hasPrefix(Self.reorderPrefix + section + "|") else { return }
+                let dragged = String(text.dropFirst((Self.reorderPrefix + section + "|").count))
+                model.reorderSidebar(section: section, path: dragged, relativeTo: target, after: zone == .after)
+            }
+            return true
+        }
         let flags = NSEvent.modifierFlags
         let providers = info.itemProviders(for: [.fileURL])
         let model = model, path = path, mode = mode
@@ -72,6 +96,7 @@ struct DropTargetModifier: ViewModifier {
     let model: AppModel
     let path: String
     let mode: FolderDropDelegate.Mode
+    var section: String?
     @State private var id = UUID()
     @State private var height: CGFloat = 0
 
@@ -86,15 +111,24 @@ struct DropTargetModifier: ViewModifier {
                 if active && zone != .into { Capsule().fill(Color.accentColor).frame(height: 3).padding(.horizontal, 6) }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-            .onDrop(of: [.fileURL], delegate: FolderDropDelegate(model: model, path: path, mode: mode, rowHeight: height) { [id] on, z in
+            .onDrop(of: section == nil ? [.fileURL] : [.fileURL, .plainText],
+                    delegate: FolderDropDelegate(model: model, path: path, mode: mode, section: section, rowHeight: height) { [id] on, z in
                 if on { model.setDropHighlight(id: id, zone: z) } else { model.clearDropHighlight(id: id) }
             })
     }
 }
 
 extension View {
-    func folderDropTarget(_ model: AppModel, path: String, mode: FolderDropDelegate.Mode = .moveInto) -> some View {
-        modifier(DropTargetModifier(model: model, path: path, mode: mode))
+    func folderDropTarget(_ model: AppModel, path: String, mode: FolderDropDelegate.Mode = .moveInto, section: String? = nil) -> some View {
+        modifier(DropTargetModifier(model: model, path: path, mode: mode, section: section))
+    }
+
+    /// Lets a sidebar row be dragged to reorder its list (text payload; files are handled elsewhere).
+    @ViewBuilder
+    func reorderDragSource(section: String?, path: String) -> some View {
+        if let section {
+            onDrag { NSItemProvider(object: (FolderDropDelegate.reorderPrefix + section + "|" + path) as NSString) }
+        } else { self }
     }
 }
 
