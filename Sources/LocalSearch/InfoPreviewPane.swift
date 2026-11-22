@@ -54,6 +54,7 @@ enum PreviewContent {
 struct InfoPreviewPane: View {
     @Environment(AppModel.self) private var model
     @AppStorage("infoExpanded") private var infoExpanded = true
+    @AppStorage("previewExpanded") private var previewExpanded = true
     @State private var info: FileInfo?
     @State private var content: PreviewContent = .none
     @State private var allowLarge = false
@@ -68,14 +69,24 @@ struct InfoPreviewPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DisclosureGroup(isExpanded: $infoExpanded) {
-                infoGrid.padding(.top, 4)
-            } label: {
-                Text("Info").font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 4)
+            PaneHeader(title: "Info & Preview", key: "showInfo").padding(.bottom, 4)
             Divider()
-            ScrollView { previewBody.padding(8).frame(maxWidth: .infinity, alignment: .leading) }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    DisclosureGroup(isExpanded: $infoExpanded) {
+                        infoGrid.padding(.top, 4)
+                    } label: {
+                        Text("Info").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Divider()
+                    DisclosureGroup(isExpanded: $previewExpanded) {
+                        previewBody.padding(.top, 4).frame(maxWidth: .infinity, alignment: .leading)
+                    } label: {
+                        Text("Preview").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(8)
+            }
         }
         .task(id: loadKey) { await load() }
         .onChange(of: target) { _, _ in allowLarge = false; showSecrets = false }

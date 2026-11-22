@@ -64,7 +64,7 @@ struct VerticalTabsPane: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Tabs").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.top, 6)
+            PaneHeader(title: "Tabs", key: "showVerticalTabs")
             TextField("Filter", text: $filter).textFieldStyle(.roundedBorder).controlSize(.small).padding(.horizontal, 8)
             List {
                 ForEach(tabs) { t in
@@ -92,7 +92,7 @@ struct RecentPane: View {
     private var isFiles: Bool { mode == "files" }
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Recent Locations").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.top, 6)
+            PaneHeader(title: "Recent Locations", key: "showRecent")
             Picker("", selection: $mode) { Text("Folders").tag("folders"); Text("Files Opened").tag("files") }
                 .pickerStyle(.segmented).labelsHidden().controlSize(.small).padding(.horizontal, 8)
             List {
@@ -167,5 +167,21 @@ struct RightDivider: View {
                         }
                         .onEnded { _ in start = nil })
             }
+    }
+}
+
+
+/// Title row of a right-panel pane with a close button. Closing only turns that pane off (View menu turns it back on).
+struct PaneHeader: View {
+    let title: String
+    let key: String
+    var body: some View {
+        HStack {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button { UserDefaults.standard.set(false, forKey: key) } label: { Image(systemName: "xmark").font(.caption2) }
+                .buttonStyle(.plain).foregroundStyle(.secondary).help("Close \(title)")
+        }
+        .padding(.horizontal, 8).padding(.top, 6)
     }
 }
