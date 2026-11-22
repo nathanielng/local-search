@@ -1,0 +1,4 @@
+.build/
+.build-test/
+dist/
+.DS_Store
