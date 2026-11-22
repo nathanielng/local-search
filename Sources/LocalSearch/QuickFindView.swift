@@ -85,12 +85,12 @@ struct QuickFindView: View {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(Array(find.results.enumerated()), id: \.element.id) { i, r in
-                                row(r, selected: i == find.selected).id(i)
+                                row(r, selected: i == find.selected).id(r.id)
                                     .onTapGesture { find.selected = i; choose(newTab: NSEvent.modifierFlags.contains(.command)) }
                             }
                         }
                     }
-                    .onChange(of: find.selected) { _, i in proxy.scrollTo(i) }
+                    .onChange(of: find.selected) { _, i in if find.results.indices.contains(i) { proxy.scrollTo(find.results[i].id) } }
                 }
                 .frame(maxHeight: 360)
                 if find.results.isEmpty {
@@ -131,17 +131,26 @@ struct QuickFindView: View {
 
     /// The full file name, with the parts that matched your search in bold accent colour.
     private func highlighted(_ name: String) -> AttributedString {
-        var out = AttributedString(name)
+        // Mark every character covered by a match, then emit alternating plain and highlighted runs.
+        let chars = Array(name)
+        var marked = [Bool](repeating: false, count: chars.count)
+        let lower = chars.map { String($0).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
         for w in find.query.split(separator: " ") {
-            var from = name.startIndex
-            while from < name.endIndex,
-                  let r = name.range(of: w, options: [.caseInsensitive, .diacriticInsensitive], range: from..<name.endIndex) {
-                if let ar = Range(r, in: out) {
-                    out[ar].foregroundColor = .accentColor
-                    out[ar].inlinePresentationIntent = .stronglyEmphasized
-                }
-                from = r.upperBound
+            let wc = w.map { String($0).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+            guard !wc.isEmpty, wc.count <= chars.count else { continue }
+            for i in 0...(chars.count - wc.count) where Array(lower[i..<(i + wc.count)]) == wc {
+                for j in i..<(i + wc.count) { marked[j] = true }
             }
+        }
+        var out = AttributedString()
+        var i = 0
+        while i < chars.count {
+            var j = i
+            while j < chars.count && marked[j] == marked[i] { j += 1 }
+            var run = AttributedString(String(chars[i..<j]))
+            if marked[i] { run.foregroundColor = .accentColor; run.font = .body.bold() }
+            out += run
+            i = j
         }
         return out
     }

@@ -61,7 +61,9 @@ struct TabBar: View {
                         .onDrop(of: [.plainText], delegate: TabEndDropDelegate(model: model))
                 }.padding(4)
             }
-            Button { model.newTab() } label: { Image(systemName: "plus") }.buttonStyle(.plain).padding(.horizontal, 8)
+            Button { model.newTab() } label: { Image(systemName: "plus") }.buttonStyle(.plain).padding(.leading, 8)
+            Button { model.showQuickFind = true } label: { Image(systemName: "magnifyingglass") }
+                .buttonStyle(.plain).padding(.horizontal, 10).help("Quick Find (⌘F)")
         }
     }
 }
@@ -151,7 +153,8 @@ struct SidebarView: View {
             collapsedRaw = c.sorted().joined(separator: ",")
         })) {
             ForEach(rows.prefix(FinderStore.sidebarLimit)) { row in
-                let missing = row.needsConnect ? false : !FileManager.default.fileExists(atPath: row.path)
+                // Never probe mounted volumes here: a stalled network share would freeze the sidebar.
+                let missing = (row.needsConnect || row.ejectable) ? false : !FileManager.default.fileExists(atPath: row.path)
                 Button { model.openRow(row, source: source) } label: {
                     // The whole row (no gaps) is clickable and a drop target.
                     HStack {
@@ -177,6 +180,7 @@ struct SidebarView: View {
                         if title == "Special Folders" { Button("Remove from Special Folders") { model.removeSpecialFolder(row.path) } }
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: row.path)]) }
                     }
+                    if let loc = row.network { Divider(); Button("Remove from Locations") { model.removeNetworkLocation(loc.title) } }
                     if row.ejectable { Divider(); Button(row.network == nil ? "Eject" : "Disconnect") { model.eject(row.path, title: row.title) } }
                 }
             }

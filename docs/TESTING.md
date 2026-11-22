@@ -34,10 +34,13 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 - Network: SMB connect and open `/Volumes/nat` work; Disconnect is asynchronous (window stays usable) and closes the tab on that volume (tested with several tabs, including tabs on different folders of the same volume: all close); SSH mount of the Pi works
 - Sidebar: draggable divider; width is kept across collapse/expand and across quitting and relaunching; collapse button and View › Hide Sidebar
 - SSH: connecting to an unreachable host gives up after about 25 seconds and the yellow bar shows the reason
+- Network: Add SSH Location menu; Remove from Locations; Remove from Special Folders
+- Dropping a file onto a tab; the signed build keeps folder permissions across rebuilds (no re-grant needed)
+- Slack drag-out skipped (not installed); WhatsApp works, Slack should too
 
 ## Not yet tested by hand
 
-- Network folders: the Add SSH Location menu. Original item: the Locations section lists mounted external/network volumes (right-click › Eject / Disconnect); a configured SMB server is dimmed until connected, clicking mounts it (sign-in dialog if needed) and opens it; Disconnect unmounts. SSH locations need FUSE-T + sshfs and key login (docs/NETWORK.md)
+- Quick Find magnifier button; partial-name search (`mo.md` shows memo.md with the match highlighted); SMB 15-second timeout. Network folders, original item: the Locations section lists mounted external/network volumes (right-click › Eject / Disconnect); a configured SMB server is dimmed until connected, clicking mounts it (sign-in dialog if needed) and opens it; Disconnect unmounts. SSH locations need FUSE-T + sshfs and key login (docs/NETWORK.md)
 - Quick Find: the matched part of a file name is shown in bold accent colour (new), and the "No matches" hint about macOS privacy; ⌘↩ (new tab / open file); revealing a file selects it in its folder
 - Special folders: right-click a folder in the list › Add to Special Folders; right-click a Special Folders row › Remove (new). A new database seeds them from settings.json
 - Dropping a file onto a tab (moves into the tab's folder)

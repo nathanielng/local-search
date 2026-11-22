@@ -21,6 +21,7 @@ The file is re-read whenever the app is brought to the front.
 
 Nothing to install. The app asks macOS to mount `smb://host/share`; if a password is needed, macOS shows
 its usual sign-in dialog and can save it in your keychain. The share appears under `/Volumes`.
+Connecting gives up after 15 seconds if the server doesn't answer.
 
 ## SSH (a Raspberry Pi, any Linux box)
 

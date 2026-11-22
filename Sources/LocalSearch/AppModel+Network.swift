@@ -42,6 +42,10 @@ extension AppModel {
         if NetworkLocation.addSSH(alias: alias) { reloadNetworkLocations() }
     }
 
+    func removeNetworkLocation(_ title: String) {
+        if NetworkLocation.remove(title: title) { reloadNetworkLocations() }
+    }
+
     func reloadNetworkLocations() {
         networkLocations = NetworkLocation.load()
         sidebarVersion += 1

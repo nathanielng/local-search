@@ -47,6 +47,19 @@ public struct NetworkLocation: Sendable, Equatable, Identifiable {
         return (try? data.write(to: url, options: .atomic)) != nil
     }
 
+    /// Remove a configured location by title, keeping every other key in the file. A mounted volume stays mounted.
+    @discardableResult
+    public static func remove(title: String, at url: URL = AppPaths.settingsURL) -> Bool {
+        guard var obj = (try? Data(contentsOf: url)).flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
+              var list = obj["network_locations"] as? [[String: Any]] else { return false }
+        let before = list.count
+        list.removeAll { $0["title"] as? String == title }
+        guard list.count != before else { return false }
+        obj["network_locations"] = list
+        guard let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) else { return false }
+        return (try? data.write(to: url, options: .atomic)) != nil
+    }
+
     /// Where an ssh location is mounted: inside our own support folder, one folder per title.
     public var sshMountPoint: String {
         let slug = title.lowercased().map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()
@@ -113,6 +126,8 @@ public enum NetworkError: Error, CustomStringConvertible {
 
 public enum NetworkMounter {
     public static let sshfsCandidates = ["/opt/homebrew/bin/sshfs", "/usr/local/bin/sshfs"]
+    /// How long to wait for an SMB server before giving up.
+    public static let smbTimeout: TimeInterval = 15
     public static var sshfsPath: String? { sshfsCandidates.first { FileManager.default.isExecutableFile(atPath: $0) } }
 
     /// Mount and return the mount point. SMB goes through the system's NetFS (it asks for a password and
@@ -124,10 +139,21 @@ public enum NetworkMounter {
             guard let s = loc.url, let url = URL(string: s) else { throw NetworkError.message("“\(loc.title)” has no valid smb:// url in settings.json") }
             let open = NSMutableDictionary()
             open[kNAUIOptionKey as String] = kNAUIOptionAllowUI as String // let macOS show the sign-in dialog
-            var points: Unmanaged<CFArray>?
-            let rc = NetFSMountURLSync(url as CFURL, nil, nil, nil, open, nil, &points)
-            let list = points?.takeRetainedValue() as? [String] ?? []
-            if rc == 0 || rc == EEXIST, let p = list.first ?? Mounts.smbMountPoint(for: s) { return p }
+            // NetFS can block for a long time on an unreachable server, so run it on its own thread and stop waiting at the timeout.
+            final class Outcome: @unchecked Sendable { var rc: Int32 = -1; var points: [String] = [] }
+            let outcome = Outcome(), group = DispatchGroup()
+            group.enter()
+            Thread.detachNewThread {
+                var points: Unmanaged<CFArray>?
+                outcome.rc = NetFSMountURLSync(url as CFURL, nil, nil, nil, open, nil, &points)
+                outcome.points = points?.takeRetainedValue() as? [String] ?? []
+                group.leave()
+            }
+            guard group.wait(timeout: .now() + smbTimeout) == .success else {
+                throw NetworkError.message("Timed out connecting to “\(loc.title)” after \(Int(smbTimeout)) seconds (is it on, and on this network?)")
+            }
+            let rc = outcome.rc
+            if rc == 0 || rc == EEXIST, let p = outcome.points.first ?? Mounts.smbMountPoint(for: s) { return p }
             throw NetworkError.message(rc == Int32(ECANCELED) || rc == -128 ? "Connection cancelled" : "Couldn't connect to “\(loc.title)” (error \(rc))")
         case .ssh:
             guard let sshfs = sshfsPath else {

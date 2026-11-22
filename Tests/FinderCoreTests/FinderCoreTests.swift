@@ -444,3 +444,32 @@ private func tempDir() throws -> String {
         #expect(SSHConfig.hosts(from: "").isEmpty)
     }
 }
+
+@Suite struct NetworkEditTests {
+    @Test func addAndRemoveKeepOtherSettings() throws {
+        let f = URL(fileURLWithPath: try tempDir() + "/settings.json")
+        try Data(#"{"special_folders":[{"title":"A","path":"/a"}]}"#.utf8).write(to: f)
+        #expect(NetworkLocation.addSSH(alias: "pi", at: f))
+        #expect(!NetworkLocation.addSSH(alias: "pi", at: f)) // no duplicates
+        #expect(NetworkLocation.load(from: f).map(\.title) == ["pi"])
+        #expect(NetworkLocation.remove(title: "pi", at: f))
+        #expect(!NetworkLocation.remove(title: "pi", at: f))
+        #expect(NetworkLocation.load(from: f).isEmpty)
+        let obj = try JSONSerialization.jsonObject(with: Data(contentsOf: f)) as? [String: Any]
+        #expect(obj?["special_folders"] != nil)
+    }
+}
+
+@Suite struct QuickFindPartialTests {
+    @Test func partialNameInTheMiddleStillFindsTheFile() {
+        let r = QuickFind.rank(paths: ["/tmp/x/memo.md", "/tmp/x/other.txt"], query: "mo.md", currentFolder: nil, frecency: [:], home: "/nonexistent")
+        #expect(r.map(\.name) == ["memo.md"])
+    }
+}
+
+@Suite struct QuickFindFolderTests {
+    @Test func folderWithoutTheTextIsNotAMatch() {
+        let r = QuickFind.rank(paths: ["/Users/x/Desktop/ls-test"], query: "mo.md", currentFolder: "/Users/x/Desktop/ls-test", frecency: [:], home: "/Users/x")
+        #expect(r.isEmpty)
+    }
+}
