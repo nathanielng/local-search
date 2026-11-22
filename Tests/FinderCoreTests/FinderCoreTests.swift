@@ -509,3 +509,30 @@ private func tempDir() throws -> String {
         #expect(FileColor.classify(name: "pic.jpg", isDirectory: false, isSymlink: false, isExecutable: true) == .image)
     }
 }
+
+@Suite struct RecentTests {
+    @Test func bands() {
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+        let now = Date(timeIntervalSince1970: 1_800_000_000 + 12 * 3600)
+        func band(_ h: Double) -> String? { RecentBand.label(for: now.addingTimeInterval(-h * 3600), now: now, calendar: cal) }
+        #expect(band(1) == "Last 3 Hours")
+        #expect(band(5) == "Last 12 Hours")
+        #expect(band(30) == "Yesterday")
+        #expect(band(24 * 2 + 1) == "2 Days Ago")
+        #expect(band(24 * 6) == "Last 7 Days")
+        #expect(band(24 * 20) == nil)
+    }
+    @Test func uniqueHideAndReturn() throws {
+        let s = try tempStore()
+        let t = UUID()
+        try s.logVisit(tabID: t, path: "/x/a", source: .click)
+        try s.logVisit(tabID: t, path: "/x/b", source: .click)
+        try s.logVisit(tabID: t, path: "/x/a", source: .click)
+        #expect(try s.recentFolders().map(\.path).sorted() == ["/x/a", "/x/b"])
+        try s.hideRecent("/x/a")
+        #expect(try s.recentFolders().map(\.path) == ["/x/b"])
+        #expect(try s.navigationHistory().count == 3)
+        try s.logVisit(tabID: t, path: "/x/a", source: .click)
+        #expect(try s.recentFolders().map(\.path).contains("/x/a"))
+    }
+}

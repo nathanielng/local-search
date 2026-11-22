@@ -4,6 +4,12 @@ public struct VisitRecord: Sendable, Equatable {
     public var tabID: String, path: String, source: String, at: String
 }
 
+public struct RecentFolder: Sendable, Equatable {
+    public var path: String
+    public var visited: Date
+    public var band: String
+}
+
 public struct FolderStat: Sendable, Equatable {
     public var path: String
     public var visits: Int
@@ -165,6 +171,7 @@ public final class FinderStore: @unchecked Sendable {
     // MARK: History
 
     public func logVisit(tabID: UUID, path: String, source: NavSource) throws {
+        try db.exec("DELETE FROM recent_hidden WHERE path=?", [.text(path)]) // a new visit brings a hidden folder back
         try db.exec("INSERT INTO nav_history(tab_id,path,source,visited_at) VALUES(?,?,?,?)",
                     [.text(tabID.uuidString), .text(path), .text(source.rawValue), .text(iso8601Now())])
     }
@@ -195,6 +202,22 @@ public final class FinderStore: @unchecked Sendable {
         }
         return stats.map { FolderStat(path: $0.key, visits: $0.value.0, estimatedSeconds: $0.value.1) }
             .sorted { $0.estimatedSeconds > $1.estimatedSeconds }.prefix(limit).map { $0 }
+    }
+
+    /// Each folder once, at its latest visit, newest first; hidden folders and visits older than 7 days are left out.
+    public func recentFolders(now: Date = Date(), limit: Int = 200) throws -> [RecentFolder] {
+        let sql = "SELECT path, MAX(visited_at) AS at FROM nav_history WHERE path NOT IN (SELECT path FROM recent_hidden) GROUP BY path ORDER BY at DESC LIMIT ?"
+        let rows = try db.query(sql, [.int(Int64(limit))])
+        return rows.compactMap { r in
+            guard let p = r["path"]?.string, let d = r["at"]?.string.flatMap(parseISO8601),
+                  let band = RecentBand.label(for: d, now: now) else { return nil }
+            return RecentFolder(path: p, visited: d, band: band)
+        }
+    }
+
+    /// Remove a folder from Recent Locations; its history is kept.
+    public func hideRecent(_ path: String) throws {
+        try db.exec("INSERT OR IGNORE INTO recent_hidden(path) VALUES(?)", [.text(path)])
     }
 
     public func deleteVisits(toFolder path: String) throws {

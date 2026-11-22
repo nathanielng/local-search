@@ -74,3 +74,4 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 
 - File colours (⌃⌘K and View menu toggle, confirmed by the user): ls-style name colours
 - Date column switcher (calendar button in the path bar, View > Date Column): Added or Modified / Modified / Added changes the column title, the dates shown, the sort and Group by Date; not yet tested by hand (the assistant checked the Modified header live)
+- Right panel, stage 1 (View > Show Vertical Tabs ⌃⌘V, Show Recent Locations ⌃⌘R; draggable remembered width): Vertical Tabs with filter, select and close; Recent Locations in tight bands with an × on each row, Open in New Tab and Remove from Recent (hides the folder, keeps history); not yet tested by hand (the assistant saw both panes render with live data)

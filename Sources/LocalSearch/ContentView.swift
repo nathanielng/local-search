@@ -6,6 +6,9 @@ struct ContentView: View {
     @AppStorage("showSidebar") private var showSidebar = true
     @AppStorage("sidebarWidth") private var sidebarWidth = 112.0
     @AppStorage("showKindBadges") private var showKindBadges = false
+    @AppStorage("showVerticalTabs") private var showVerticalTabs = false
+    @AppStorage("showRecent") private var showRecent = false
+    @AppStorage("rightPanelWidth") private var rightPanelWidth = 240.0
 
     var body: some View {
         content.overlay { if model.showQuickFind { QuickFindView() } }
@@ -44,6 +47,10 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 480)
+            if showVerticalTabs || showRecent {
+                RightDivider(width: $rightPanelWidth)
+                RightPanel().frame(width: min(max(rightPanelWidth, 160), 480))
+            }
         }
     }
 }

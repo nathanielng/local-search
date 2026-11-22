@@ -22,6 +22,8 @@ struct AppCommands: Commands {
     @AppStorage("groupByDate") private var groupByDate = false
     @AppStorage("showKindBadges") private var showKindBadges = false
     @AppStorage("lsColors") private var lsColors = false
+    @AppStorage("showVerticalTabs") private var showVerticalTabs = false
+    @AppStorage("showRecent") private var showRecent = false
     @Environment(\.openWindow) private var openWindow
     private var editingText: Bool { NSApp.keyWindow?.firstResponder is NSText }
     var body: some Commands {
@@ -86,6 +88,8 @@ struct AppCommands: Commands {
             Picker("Date Column", selection: Binding(get: { model.dateMode }, set: { model.dateMode = $0 })) {
                 ForEach(DateMode.allCases, id: \.self) { Text($0.title).tag($0) }
             }
+            Button(showVerticalTabs ? "Hide Vertical Tabs" : "Show Vertical Tabs") { showVerticalTabs.toggle() }.keyboardShortcut("v", modifiers: [.command, .control])
+            Button(showRecent ? "Hide Recent Locations" : "Show Recent Locations") { showRecent.toggle() }.keyboardShortcut("r", modifiers: [.command, .control])
             Button(lsColors ? "Hide File Colours" : "Show File Colours") { lsColors.toggle() }.keyboardShortcut("k", modifiers: [.command, .control])
             Button(showKindBadges ? "Hide Kind Badges" : "Show Kind Badges") {
                 showKindBadges.toggle(); if !showKindBadges { model.clearKindFilter() }
