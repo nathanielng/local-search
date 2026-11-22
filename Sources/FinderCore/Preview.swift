@@ -20,8 +20,16 @@ public enum PreviewResult: Equatable, Sendable {
 /// Rules for the Info & Preview pane. Nothing here touches the UI.
 public enum Preview {
     public static let sniffBytes = 8 * 1024
-    public static let textCap = 64 * 1024
-    public static let bigFile: Int64 = 1_048_576
+    /// Limits the user can change in Settings (stored in the app's preferences); these are the defaults.
+    public static let defaultTextKB = 64, defaultBigMB = 1
+    public static var textCap: Int { clamped("previewTextKB", defaultTextKB, 8...1024) * 1024 }
+    public static var bigFile: Int64 { Int64(clamped("previewBigMB", defaultBigMB, 1...100)) * 1_048_576 }
+    public static var withholdSecrets: Bool { UserDefaults.standard.object(forKey: "previewWithholdSecrets") as? Bool ?? true }
+
+    static func clamped(_ key: String, _ def: Int, _ range: ClosedRange<Int>) -> Int {
+        let v = UserDefaults.standard.integer(forKey: key)
+        return v == 0 ? def : min(max(v, range.lowerBound), range.upperBound)
+    }
 
     static let imageExts: Set<String> = ["png", "jpg", "jpeg", "gif", "heic", "tiff", "tif", "bmp", "webp"]
     static let markdownExts: Set<String> = ["md", "markdown", "mdown"]
@@ -88,7 +96,7 @@ public enum Preview {
         try? h.seek(toOffset: 0)
         let data = (try? h.read(upToCount: cap)) ?? head
         var text = String(decoding: data, as: UTF8.self)
-        if !showSecrets, let why = secretReason(name: name, text: text) { return .withheld(reason: why) }
+        if !showSecrets, withholdSecrets, let why = secretReason(name: name, text: text) { return .withheld(reason: why) }
         let truncated = size > Int64(cap)
         if truncated, text.last == "\u{FFFD}" { text.removeLast() }
         return .text(TextPreview(text: text, truncated: truncated))

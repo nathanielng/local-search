@@ -178,8 +178,9 @@ final class AppModel {
         historyVersion += 1
     }
 
-    func open(_ entry: FileEntry, newTab: Bool = false) {
-        if entry.isDirectory {
+    /// Folders open in the tab; apps and other packages launch like files, unless `insidePackage` asks for their contents.
+    func open(_ entry: FileEntry, newTab: Bool = false, insidePackage: Bool = false) {
+        if entry.isDirectory && (!entry.isPackage || insidePackage) {
             if newTab { self.newTab(path: entry.path) } else { navigate(entry.path, .click) }
         } else {
             openFile(entry.path)
@@ -476,7 +477,7 @@ final class AppModel {
         }
     }
 
-    private func logOp(_ op: String, src: String?, dst: String?, ok: Bool) {
+    func logOp(_ op: String, src: String?, dst: String?, ok: Bool) {
         try? store?.db.exec("INSERT INTO file_ops(batch_id,op,src,dst,result,actor,at) VALUES(?,?,?,?,?,'app',?)",
                             [.text(UUID().uuidString), .text(op), src.map { .text($0) } ?? .null,
                              dst.map { .text($0) } ?? .null, .text(ok ? "done" : "failed"), .text(iso8601Now())])

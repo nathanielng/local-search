@@ -127,12 +127,15 @@ public enum NetworkError: Error, CustomStringConvertible {
 public enum NetworkMounter {
     public static let sshfsCandidates = ["/opt/homebrew/bin/sshfs", "/usr/local/bin/sshfs"]
     /// How long to wait for an SMB server before giving up.
-    public static let smbTimeout: TimeInterval = 15
+    public static let defaultSMBSeconds = 15, defaultSSHSeconds = 25
+    /// Both can be changed in Settings; they're read each time a connection starts.
+    public static var smbTimeout: TimeInterval { TimeInterval(Preview.clamped("smbTimeoutSeconds", defaultSMBSeconds, 5...120)) }
+    public static var sshTimeout: TimeInterval { TimeInterval(Preview.clamped("sshTimeoutSeconds", defaultSSHSeconds, 5...120)) }
     public static var sshfsPath: String? { sshfsCandidates.first { FileManager.default.isExecutableFile(atPath: $0) } }
 
     /// Mount and return the mount point. SMB goes through the system's NetFS (it asks for a password and
     /// offers the keychain). SSH needs `sshfs` (FUSE-T) and key-based login.
-    public static func mount(_ loc: NetworkLocation, timeout: TimeInterval = 25) throws -> String {
+    public static func mount(_ loc: NetworkLocation, timeout: TimeInterval = sshTimeout) throws -> String {
         if let existing = Mounts.mountPoint(for: loc) { return existing }
         switch loc.kind {
         case .smb:

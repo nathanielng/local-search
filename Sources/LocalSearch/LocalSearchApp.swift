@@ -27,6 +27,8 @@ struct AppCommands: Commands {
     @AppStorage("showRecent") private var showRecent = false
     @AppStorage("showInfo") private var showInfo = false
     @AppStorage("showCommands") private var showCommands = false
+    @AppStorage("showRightPanel") private var showRightPanel = true
+    @AppStorage("showPermissions") private var showPermissions = false
     @Environment(\.openWindow) private var openWindow
     private var editingText: Bool { NSApp.keyWindow?.firstResponder is NSText }
     var body: some Commands {
@@ -95,15 +97,17 @@ struct AppCommands: Commands {
             Picker("Date Column", selection: Binding(get: { model.dateMode }, set: { model.dateMode = $0 })) {
                 ForEach(DateMode.allCases, id: \.self) { Text($0.title).tag($0) }
             }
-            Button(showVerticalTabs ? "Hide Vertical Tabs" : "Show Vertical Tabs") { showVerticalTabs.toggle() }.keyboardShortcut("v", modifiers: [.command, .control])
-            Button(showRecent ? "Hide Recent Locations" : "Show Recent Locations") { showRecent.toggle() }.keyboardShortcut("r", modifiers: [.command, .control])
+            Button(showRightPanel && (showVerticalTabs || showRecent || showInfo) ? "Hide Right Panel" : "Show Right Panel") { RightPanelState.toggle() }.keyboardShortcut("p", modifiers: [.command, .control])
+            Button(showVerticalTabs ? "Hide Vertical Tabs" : "Show Vertical Tabs") { showVerticalTabs.toggle(); if showVerticalTabs { showRightPanel = true } }.keyboardShortcut("v", modifiers: [.command, .control])
+            Button(showRecent ? "Hide Recent Locations" : "Show Recent Locations") { showRecent.toggle(); if showRecent { showRightPanel = true } }.keyboardShortcut("r", modifiers: [.command, .control])
             Button(showCommands ? "Hide Command Panel" : "Show Command Panel") { showCommands.toggle() }.keyboardShortcut("`", modifiers: .control)
-            Button(showInfo ? "Hide Info & Preview" : "Show Info & Preview") { showInfo.toggle() }.keyboardShortcut("i", modifiers: [.command, .option])
+            Button(showInfo ? "Hide Info & Preview" : "Show Info & Preview") { showInfo.toggle(); if showInfo { showRightPanel = true } }.keyboardShortcut("i", modifiers: [.command, .option])
             Button(lsColors ? "Hide File Colours" : "Show File Colours") { lsColors.toggle() }.keyboardShortcut("k", modifiers: [.command, .control])
             Button(showKindBadges ? "Hide Kind Badges" : "Show Kind Badges") {
                 showKindBadges.toggle(); if !showKindBadges { model.clearKindFilter() }
             }.keyboardShortcut("b", modifiers: [.command, .control])
-            Button("Show Hidden Files") { model.toggleHidden() }.keyboardShortcut(".", modifiers: [.command, .shift])
+            Button(model.showHidden ? "Hide Hidden Files" : "Show Hidden Files") { model.toggleHidden() }.keyboardShortcut(".", modifiers: [.command, .shift])
+            Button(showPermissions ? "Hide Permissions Column" : "Show Permissions Column") { showPermissions.toggle() }.keyboardShortcut("p", modifiers: [.command, .option])
             Button("Bigger Text") { model.textSize = min(20, model.textSize + 1) }.keyboardShortcut("+")
             Button("Smaller Text") { model.textSize = max(10, model.textSize - 1) }.keyboardShortcut("-")
             Button("Actual Text Size") { model.textSize = 13 }.keyboardShortcut("0")

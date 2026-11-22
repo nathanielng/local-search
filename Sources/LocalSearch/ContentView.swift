@@ -10,6 +10,7 @@ struct ContentView: View {
     @AppStorage("showRecent") private var showRecent = false
     @AppStorage("showInfo") private var showInfo = false
     @AppStorage("showCommands") private var showCommands = false
+    @AppStorage("showRightPanel") private var showRightPanel = true
     @AppStorage("rightPanelWidth") private var rightPanelWidth = 240.0
 
     var body: some View {
@@ -50,7 +51,7 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 480)
-            if showVerticalTabs || showRecent || showInfo {
+            if showRightPanel && (showVerticalTabs || showRecent || showInfo) {
                 RightDivider(width: $rightPanelWidth)
                 RightPanel().frame(width: min(max(rightPanelWidth, 160), 480))
             }
@@ -84,7 +85,9 @@ struct TabBar: View {
             .frame(height: min(contentHeight, maxHeight))
             Button { model.newTab() } label: { Image(systemName: "plus") }.buttonStyle(.plain).padding(.leading, 8).padding(.top, 10)
             Button { model.showQuickFind = true } label: { Image(systemName: "magnifyingglass") }
-                .buttonStyle(.plain).padding(.horizontal, 10).padding(.top, 10).help("Quick Find (⌘F)")
+                .buttonStyle(.plain).padding(.leading, 10).padding(.top, 10).help("Quick Find (⌘F)")
+            Button { RightPanelState.toggle() } label: { Image(systemName: "sidebar.right") }
+                .buttonStyle(.plain).padding(.horizontal, 10).padding(.top, 10).help("Show or hide the right panel (⌃⌘P)")
         }
     }
 }
@@ -156,6 +159,9 @@ struct NavBar: View {
     @AppStorage("showKindBadges") private var showKindBadges = false
     @State private var text = ""
     @FocusState private var focused: Bool
+    @State private var clipboardPath: String?
+
+    private func checkClipboard() { clipboardPath = PathText.looksLikePath(NSPasteboard.general.string(forType: .string)) }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -168,6 +174,15 @@ struct NavBar: View {
             TextField("Path", text: $text)
                 .textFieldStyle(.roundedBorder).focused($focused)
                 .onSubmit { model.navigate(text, .typed); focused = false }
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text.isEmpty ? model.current.path : text, forType: .string)
+            } label: { Image(systemName: "doc.on.doc") }.help("Copy the path")
+            Button {
+                if let p = clipboardPath { text = p; focused = true }
+            } label: { Image(systemName: "doc.on.clipboard") }
+                .disabled(clipboardPath == nil)
+                .help(clipboardPath.map { "Paste the path from the clipboard: \($0)" } ?? "Paste a path (the clipboard doesn't hold one)")
             Button { showKindBadges.toggle(); if !showKindBadges { model.clearKindFilter() } } label: {
                 Image(systemName: showKindBadges ? "tag.fill" : "tag")
             }.help("Show or hide Kind badges: filter this folder by type")
@@ -177,12 +192,17 @@ struct NavBar: View {
                 }.pickerStyle(.inline)
             } label: { Image(systemName: "calendar") }
                 .menuIndicator(.hidden).fixedSize().help("Date column: Added or Modified, Modified, or Added")
+            Button { model.toggleHidden() } label: { Image(systemName: model.showHidden ? "eye" : "eye.slash") }
+                .help(model.showHidden ? "Hide hidden files (⇧⌘.)" : "Show hidden files such as .ssh and .config (⇧⌘.)")
             Button { model.toggleFavorite() } label: {
                 Image(systemName: model.store?.isFavorite(model.current.path) == true ? "star.fill" : "star")
             }
         }
         .buttonStyle(.borderless).padding(6)
         .onChange(of: model.current.path, initial: true) { _, p in text = p }
+        .onAppear { checkClipboard() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in checkClipboard() }
+        .onChange(of: focused) { _, f in if f { checkClipboard() } }
         .onChange(of: model.showAddressField) { _, v in if v { focused = true; model.showAddressField = false } }
     }
 }
@@ -374,6 +394,8 @@ struct FileListView: View {
     @AppStorage("lsColors") private var lsColors = false
     @Environment(AppModel.self) private var model
     @AppStorage("groupByDate") private var groupByDate = false
+    @AppStorage("showPermissions") private var showPermissions = false
+    @State private var columns = TableColumnCustomization<FileEntry>()
 
     /// With Group by Date on and the list sorted by date, a header row precedes each period.
     private var listRows: [FileEntry] {
@@ -396,7 +418,7 @@ struct FileListView: View {
     var body: some View {
         @Bindable var m = model
         let rows = listRows
-        Table(rows, selection: Binding(get: { model.selection }, set: { model.setSelection($0) }), sortOrder: sortOrder) {
+        Table(rows, selection: Binding(get: { model.selection }, set: { model.setSelection($0) }), sortOrder: sortOrder, columnCustomization: $columns) {
             TableColumn("Name", value: \.name) { e in
                 if e.isHeader {
                     Text(e.name).font(.system(size: model.textSize, weight: .semibold)).foregroundStyle(.secondary)
@@ -421,13 +443,25 @@ struct FileListView: View {
                 if !e.isHeader { Text(e.isDirectory ? "--" : ByteCountFormatter.string(fromByteCount: e.size, countStyle: .file)).foregroundStyle(.secondary) }
             }.width(min: 60, ideal: 80)
             TableColumn("Kind", value: \.kind) { e in if !e.isHeader { Text(e.kind).foregroundStyle(.secondary).lineLimit(1) } }.width(min: 80, ideal: 120)
+            TableColumn("Permissions") { e in
+                if !e.isHeader { Text(e.permissionText).font(.system(size: model.textSize - 1, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1) }
+            }
+            .width(min: 120, ideal: 150).customizationID("permissions").defaultVisibility(.hidden)
         }
         .font(.system(size: model.textSize))
+        .onAppear { columns[visibility: "permissions"] = showPermissions ? .visible : .hidden }
+        .onChange(of: showPermissions) { _, v in columns[visibility: "permissions"] = v ? .visible : .hidden }
+        .onChange(of: columns[visibility: "permissions"]) { _, v in showPermissions = (v != .hidden) }   // the header's own menu
         .id(lsColors)
         .background(AppKitDragFix(paths: rows.map { $0.isHeader ? "" : $0.path }))
         .onDrop(of: [.fileURL], delegate: FolderDropDelegate(model: model, path: model.current.path, mode: .copyIntoCurrent) { _, _ in })
         .contextMenu(forSelectionType: String.self) { ids in
             if !ids.isEmpty {
+                Button("Open") { for e in rows where ids.contains(e.path) && !e.isHeader { model.open(e) } }
+                if ids.count == 1, let e = rows.first(where: { ids.contains($0.path) }), e.isPackage {
+                    Button("Show Package Contents") { model.open(e, insidePackage: true) }
+                }
+                Divider()
                 if ids.count == 1 { Button("Rename") { model.renamingPath = ids.first } }
                 if ids.count == 1, let e = rows.first(where: { ids.contains($0.path) }), e.isDirectory {
                     Button("Add to Favorites") { try? model.store?.addFavorite(path: e.path); model.sidebarVersion += 1 }
@@ -438,6 +472,11 @@ struct FileListView: View {
                 Button("Show in Finder") { model.showInFinder() }
                 Button("Copy") { model.copyFiles() }
                 Button("Copy Paths") { model.copyPaths() }
+                Menu("Permissions") {
+                    ForEach(Permissions.Preset.allCases, id: \.self) { p in
+                        Button(p.title) { model.changePermissions(p, paths: Array(ids)) }.help(p.help)
+                    }
+                }
                 Button("Move to Trash") { model.trash(Array(ids)) }
                 Divider()
             }
@@ -446,7 +485,8 @@ struct FileListView: View {
             Button("Paste") { model.pasteFiles() }
         } primaryAction: { ids in
             let cmd = NSEvent.modifierFlags.contains(.command)
-            for e in rows where ids.contains(e.path) && !e.isHeader { model.open(e, newTab: cmd) }
+            let inside = NSEvent.modifierFlags.contains(.option)
+            for e in rows where ids.contains(e.path) && !e.isHeader { model.open(e, newTab: cmd, insidePackage: inside) }
         }
         .onKeyPress(.space) { model.quickLook(); return .handled }
         .onKeyPress(.return) {
@@ -514,5 +554,18 @@ struct SidebarDivider: View {
                         }
                         .onEnded { _ in start = nil })
             }
+    }
+}
+
+/// The right panel's master switch. The three panes keep their own on/off state underneath.
+enum RightPanelState {
+    /// Hide or show the panel. If it would open with no pane on, turn Recent Locations on so something appears.
+    static func toggle() {
+        let d = UserDefaults.standard
+        let shown = d.object(forKey: "showRightPanel") as? Bool ?? true
+        let anyPane = d.bool(forKey: "showVerticalTabs") || d.bool(forKey: "showRecent") || d.bool(forKey: "showInfo")
+        if shown && anyPane { d.set(false, forKey: "showRightPanel"); return }
+        d.set(true, forKey: "showRightPanel")
+        if !anyPane { d.set(true, forKey: "showRecent") }
     }
 }

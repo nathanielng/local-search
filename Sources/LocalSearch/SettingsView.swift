@@ -8,9 +8,11 @@ struct SettingsView: View {
         TabView {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
             HistorySettings().tabItem { Label("History", systemImage: "clock") }
+            PreviewSettings().tabItem { Label("Previews", systemImage: "eye") }
+            NetworkSettings().tabItem { Label("Network", systemImage: "network") }
             LocationsSettings().tabItem { Label("Locations", systemImage: "folder.badge.gearshape") }
         }
-        .frame(width: 520, height: 520)
+        .frame(width: 560, height: 520)
     }
 }
 
@@ -163,6 +165,62 @@ struct LocationsSettings: View {
                 }
                 Text("Changes made to settings.json by hand are picked up automatically. These lists are stored only on this Mac.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+/// Limits for the Info & Preview pane.
+struct PreviewSettings: View {
+    @AppStorage("previewWithholdSecrets") private var withhold = true
+    @AppStorage("previewTextKB") private var textKB = Preview.defaultTextKB
+    @AppStorage("previewBigMB") private var bigMB = Preview.defaultBigMB
+
+    var body: some View {
+        Form {
+            Section("Privacy") {
+                Toggle("Hold back files that look like they contain secrets", isOn: $withhold)
+                Text("Files such as .env, key files and anything with a password or key in it show a “Show Anyway” button instead of their contents. Turn this off only if you trust everything you browse.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Size limits") {
+                Picker("Show the first", selection: $textKB) {
+                    ForEach([16, 64, 256, 1024], id: \.self) { Text($0 >= 1024 ? "1 MB" : "\($0) KB").tag($0) }
+                }
+                Picker("Ask before opening files over", selection: $bigMB) {
+                    ForEach([1, 5, 20, 100], id: \.self) { Text("\($0) MB").tag($0) }
+                }
+                Text("Longer text is cut with a note. Files over the second limit show a “Show Preview” button first. Changes apply to the next file you select.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Button("Restore Defaults") { withhold = true; textKB = Preview.defaultTextKB; bigMB = Preview.defaultBigMB }
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+/// How long to wait for a network location before giving up.
+struct NetworkSettings: View {
+    @AppStorage("smbTimeoutSeconds") private var smb = NetworkMounter.defaultSMBSeconds
+    @AppStorage("sshTimeoutSeconds") private var ssh = NetworkMounter.defaultSSHSeconds
+
+    var body: some View {
+        Form {
+            Section("Connection timeouts") {
+                Picker("File server (SMB)", selection: $smb) {
+                    ForEach([10, 15, 30, 60], id: \.self) { Text("\($0) seconds").tag($0) }
+                }
+                Picker("SSH location", selection: $ssh) {
+                    ForEach([15, 25, 45, 90], id: \.self) { Text("\($0) seconds").tag($0) }
+                }
+                Text("How long to wait when you open a network location in the sidebar before showing an error. Raise these for a server that is slow to wake.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Button("Restore Defaults") { smb = NetworkMounter.defaultSMBSeconds; ssh = NetworkMounter.defaultSSHSeconds }
             }
         }
         .formStyle(.grouped)

@@ -14,6 +14,9 @@ struct FileEntry: Identifiable, Hashable, Sendable {
     let isOnlineOnly: Bool
     var isSymlink = false
     var isExecutable = false
+    /// A bundle such as an .app: it opens like a file, and its contents are shown on request.
+    var isPackage = false
+    var mode: UInt16 = 0
     /// A section header row (Group by Date); never selectable, draggable or openable.
     var isHeader = false
 
@@ -34,7 +37,7 @@ struct FileEntry: Identifiable, Hashable, Sendable {
     static func list(_ folder: String, showHidden: Bool) throws -> [FileEntry] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
                                       .addedToDirectoryDateKey, .localizedTypeDescriptionKey, .isHiddenKey,
-                                      .ubiquitousItemDownloadingStatusKey, .isSymbolicLinkKey, .isExecutableKey]
+                                      .ubiquitousItemDownloadingStatusKey, .isSymbolicLinkKey, .isExecutableKey, .isPackageKey]
         let urls = try FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: folder),
                                                                includingPropertiesForKeys: keys, options: [])
         return urls.compactMap { u in
@@ -48,7 +51,8 @@ struct FileEntry: Identifiable, Hashable, Sendable {
             return FileEntry(path: u.path, name: name, isDirectory: isDir, size: Int64(v?.fileSize ?? 0),
                              modified: mod, added: v?.addedToDirectoryDate ?? mod,
                              kind: isDir ? "Folder" : (v?.localizedTypeDescription ?? "Document"), isOnlineOnly: online,
-                             isSymlink: v?.isSymbolicLink ?? false, isExecutable: !isDir && (v?.isExecutable ?? false))
+                             isSymlink: v?.isSymbolicLink ?? false, isExecutable: !isDir && (v?.isExecutable ?? false),
+                             isPackage: v?.isPackage ?? false, mode: Permissions.mode(of: u.path) ?? 0)
         }
     }
 }
@@ -63,4 +67,9 @@ enum DateMode: String, CaseIterable {
     var title: String {
         switch self { case .addedOrModified: "Added or Modified"; case .modified: "Modified"; case .added: "Added" }
     }
+}
+
+extension FileEntry {
+    var permissionString: String { Permissions.string(mode: mode, isDirectory: isDirectory, isSymlink: isSymlink) }
+    var permissionText: String { isHeader ? "" : permissionString + "  " + Permissions.octal(mode) }
 }

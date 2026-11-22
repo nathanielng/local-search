@@ -865,3 +865,86 @@ private func tempDir() throws -> String {
         #expect(Actions.installDefaults(bundled: b, to: t))                 // unreadable: replaced, old kept
     }
 }
+
+@Suite(.serialized) struct AdjustableLimitsTests {
+    private let keys = ["previewTextKB", "previewBigMB", "previewWithholdSecrets", "smbTimeoutSeconds", "sshTimeoutSeconds"]
+    private func reset() { keys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
+
+    @Test func defaultsAndClamping() {
+        reset(); defer { reset() }
+        #expect(Preview.textCap == 64 * 1024)
+        #expect(Preview.bigFile == 1_048_576)
+        #expect(Preview.withholdSecrets)
+        #expect(NetworkMounter.smbTimeout == 15 && NetworkMounter.sshTimeout == 25)
+        UserDefaults.standard.set(256, forKey: "previewTextKB")
+        UserDefaults.standard.set(999, forKey: "previewBigMB")      // out of range: clamped to 100
+        UserDefaults.standard.set(1, forKey: "smbTimeoutSeconds")   // out of range: clamped to 5
+        #expect(Preview.textCap == 256 * 1024)
+        #expect(Preview.bigFile == 100 * 1_048_576)
+        #expect(NetworkMounter.smbTimeout == 5)
+    }
+    @Test func secretsSwitchAndBigLimitApply() throws {
+        reset(); defer { reset() }
+        let dir = NSTemporaryDirectory() + "lim-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let f = dir + "/.env"
+        try "API_KEY=abc123\n".write(toFile: f, atomically: true, encoding: .utf8)
+        if case .withheld = Preview.loadText(path: f, size: 15) {} else { Issue.record("expected withheld") }
+        UserDefaults.standard.set(false, forKey: "previewWithholdSecrets")
+        if case .text = Preview.loadText(path: f, size: 15) {} else { Issue.record("expected text") }
+        let big = dir + "/big.txt"
+        try String(repeating: "line\n", count: 300_000).write(toFile: big, atomically: true, encoding: .utf8)   // ~1.5 MB
+        if case .needsClick = Preview.loadText(path: big, size: 1_500_000) {} else { Issue.record("expected needsClick") }
+        UserDefaults.standard.set(5, forKey: "previewBigMB")
+        if case .text = Preview.loadText(path: big, size: 1_500_000) {} else { Issue.record("expected text after raising limit") }
+    }
+}
+
+@Suite struct PermissionsTests {
+    @Test func stringsLikeLs() {
+        #expect(Permissions.string(mode: 0o755, isDirectory: true) == "drwxr-xr-x")
+        #expect(Permissions.string(mode: 0o644, isDirectory: false) == "-rw-r--r--")
+        #expect(Permissions.string(mode: 0o400, isDirectory: false) == "-r--------")
+        #expect(Permissions.string(mode: 0o2777, isDirectory: true) == "drwxrwsrwx")      // setgid
+        #expect(Permissions.string(mode: 0o1777, isDirectory: true) == "drwxrwxrwt")      // sticky
+        #expect(Permissions.string(mode: 0o4755, isDirectory: false) == "-rwsr-xr-x")     // setuid
+        #expect(Permissions.string(mode: 0o4644, isDirectory: false) == "-rwSr--r--")
+        #expect(Permissions.string(mode: 0o777, isDirectory: false, isSymlink: true) == "lrwxrwxrwx")
+        #expect(Permissions.octal(0o644) == "644" && Permissions.octal(0o7) == "007" && Permissions.octal(0o4755) == "4755")
+    }
+    @Test func presets() {
+        #expect(Permissions.newMode(0o644, .makeExecutable, isDirectory: false) == 0o755)
+        #expect(Permissions.newMode(0o755, .removeExecute, isDirectory: false) == 0o644)
+        #expect(Permissions.newMode(0o755, .removeExecute, isDirectory: true) == 0o755)    // folders keep x
+        #expect(Permissions.newMode(0o644, .privateToOwner, isDirectory: false) == 0o600)
+        #expect(Permissions.newMode(0o755, .privateToOwner, isDirectory: true) == 0o700)
+        #expect(Permissions.newMode(0o644, .readOnly, isDirectory: false) == 0o400)
+        #expect(Permissions.newMode(0o4755, .privateToOwner, isDirectory: false) == 0o600)  // special bits cleared
+    }
+    @Test func applyAndRestoreOnDisk() throws {
+        let dir = NSTemporaryDirectory() + "perm-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let f = dir + "/key", link = dir + "/ln"
+        try "x".write(toFile: f, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: f)
+        chmod(f, 0o644)
+        let c = try #require(try Permissions.apply(.readOnly, to: f, isDirectory: false))
+        #expect(Permissions.mode(of: f) == 0o400 && c.old == 0o644)
+        #expect(try Permissions.apply(.readOnly, to: f, isDirectory: false) == nil)       // already so
+        #expect(try Permissions.apply(.makeExecutable, to: link, isDirectory: false) == nil)   // symlink skipped
+        Permissions.restore(c)
+        #expect(Permissions.mode(of: f) == 0o644)
+    }
+    @Test func pasteChecks() {
+        #expect(PathText.looksLikePath("/Users/x/My Docs/a.txt\n") == "/Users/x/My Docs/a.txt")
+        #expect(PathText.looksLikePath("~/code") == "~/code")
+        #expect(PathText.looksLikePath("'/a b/c'") == "/a b/c")
+        #expect(PathText.looksLikePath("/a\\ b/c") == "/a b/c")
+        #expect(PathText.looksLikePath("file:///tmp/a%20b") == "/tmp/a b")
+        #expect(PathText.looksLikePath("hello world") == nil)
+        #expect(PathText.looksLikePath("https://example.org/a") == nil)
+        #expect(PathText.looksLikePath("/a\n/b") == nil)          // two lines
+        #expect(PathText.looksLikePath("~bob/x") == nil)
+        #expect(PathText.looksLikePath("") == nil && PathText.looksLikePath(nil) == nil)
+    }
+}
