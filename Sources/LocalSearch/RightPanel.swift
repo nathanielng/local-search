@@ -6,12 +6,41 @@ struct RightPanel: View {
     @Environment(AppModel.self) private var model
     @AppStorage("showVerticalTabs") private var showTabs = false
     @AppStorage("showRecent") private var showRecent = false
+    @AppStorage("tabsPaneHeight") private var tabsHeight = 220.0
     var body: some View {
-        VStack(spacing: 0) {
-            if showTabs { VerticalTabsPane() }
-            if showTabs && showRecent { Divider() }
-            if showRecent { RecentPane() }
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                if showTabs && showRecent {
+                    VerticalTabsPane().frame(height: min(max(tabsHeight, 80), max(geo.size.height - 120, 80)))
+                    PaneDivider(height: $tabsHeight, maxHeight: max(geo.size.height - 120, 80))
+                    RecentPane()
+                } else if showTabs {
+                    VerticalTabsPane()
+                } else if showRecent {
+                    RecentPane()
+                }
+            }
         }
+    }
+}
+
+/// Horizontal splitter between the two panes; drag it up or down.
+struct PaneDivider: View {
+    @Binding var height: Double
+    let maxHeight: Double
+    @State private var start: Double?
+    var body: some View {
+        Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
+            .overlay {
+                Color.clear.frame(height: 9).contentShape(Rectangle())
+                    .onHover { inside in if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { v in
+                            if start == nil { start = height }
+                            height = min(max((start ?? height) + v.translation.height, 80), maxHeight)
+                        }
+                        .onEnded { _ in start = nil })
+            }
     }
 }
 
@@ -48,39 +77,58 @@ struct VerticalTabsPane: View {
 
 struct RecentPane: View {
     @Environment(AppModel.self) private var model
+    @AppStorage("recentMode") private var mode = "folders"
     @State private var items: [RecentFolder] = []
+    private var isFiles: Bool { mode == "files" }
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Recent Locations").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.top, 6)
+            Picker("", selection: $mode) { Text("Folders").tag("folders"); Text("Files Opened").tag("files") }
+                .pickerStyle(.segmented).labelsHidden().controlSize(.small).padding(.horizontal, 8)
             List {
                 ForEach(RecentBand.order, id: \.self) { band in
                     let rows = items.filter { $0.band == band }
                     if !rows.isEmpty {
                         Section(band) {
-                            ForEach(rows, id: \.path) { r in
-                                HStack(spacing: 4) {
-                                    Text(label(r.path)).lineLimit(1)
-                                    Spacer(minLength: 0)
-                                    Button { try? model.store?.hideRecent(r.path); reload() } label: { Image(systemName: "xmark") }
-                                        .buttonStyle(.borderless).foregroundStyle(.secondary).help("Remove from Recent Locations")
-                                }
-                                    .help(r.path).contentShape(Rectangle())
-                                    .listRowSeparator(.hidden)
-                                    .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 8))
-                                    .onTapGesture { model.navigate(r.path, .recent) }
-                                    .contextMenu {
-                                        Button("Open in New Tab") { model.newTab(path: r.path) }
-                                        Button("Remove from Recent") { try? model.store?.hideRecent(r.path); reload() }
-                                    }
-                            }
+                            ForEach(rows, id: \.path) { r in row(r) }
                         }
                     }
                 }
             }.listStyle(.plain).environment(\.defaultMinListRowHeight, 21)
         }
         .onAppear(perform: reload)
+        .onChange(of: mode) { _, _ in reload() }
         .onChange(of: model.current.path) { _, _ in reload() }
         .onChange(of: model.historyVersion) { _, _ in reload() }
+    }
+
+    @ViewBuilder private func row(_ r: RecentFolder) -> some View {
+        let line = HStack(spacing: 4) {
+            Text(label(r.path)).lineLimit(1)
+            Spacer(minLength: 0)
+            Button { remove(r.path) } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless).foregroundStyle(.secondary).help("Remove from Recent Locations")
+        }
+        .help(r.path).contentShape(Rectangle())
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 8))
+        .onTapGesture { isFiles ? model.openFile(r.path) : model.navigate(r.path, .recent) }
+        .contextMenu {
+            if isFiles {
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: r.path)]) }
+                Button("Open Containing Folder") { model.navigate((r.path as NSString).deletingLastPathComponent, .recent) }
+            } else {
+                Button("Open in New Tab") { model.newTab(path: r.path) }
+            }
+            Button("Remove from Recent") { remove(r.path) }
+        }
+        // Files dropped on a folder row are moved into it (hold ⌥ to copy).
+        if isFiles { line } else { line.folderDropTarget(model, path: r.path) }
+    }
+
+    private func remove(_ path: String) {
+        if isFiles { try? model.store?.deleteOpens(of: path) } else { try? model.store?.hideRecent(path) }
+        reload()
     }
     private func label(_ path: String) -> String {
         let name = (path as NSString).lastPathComponent
@@ -88,7 +136,9 @@ struct RecentPane: View {
         guard items.filter({ ($0.path as NSString).lastPathComponent == name }).count > 1 else { return name }
         return "\(name) — \(((path as NSString).deletingLastPathComponent as NSString).lastPathComponent)"
     }
-    private func reload() { items = (try? model.store?.recentFolders()) ?? [] }
+    private func reload() {
+        items = ((isFiles ? try? model.store?.recentFiles() : try? model.store?.recentFolders()) ?? nil) ?? []
+    }
 }
 
 /// Draggable divider for the right panel (drags the opposite way to the sidebar's).

@@ -536,3 +536,13 @@ private func tempDir() throws -> String {
         #expect(try s.recentFolders().map(\.path).contains("/x/a"))
     }
 }
+
+@Suite struct RecentFilesTests {
+    @Test func uniqueAndDelete() throws {
+        let s = try tempStore()
+        try s.logOpen(path: "/x/a.txt"); try s.logOpen(path: "/x/b.txt"); try s.logOpen(path: "/x/a.txt")
+        #expect(try s.recentFiles().map(\.path).sorted() == ["/x/a.txt", "/x/b.txt"])
+        try s.deleteOpens(of: "/x/a.txt")
+        #expect(try s.recentFiles().map(\.path) == ["/x/b.txt"])
+    }
+}

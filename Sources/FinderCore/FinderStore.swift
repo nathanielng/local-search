@@ -215,6 +215,25 @@ public final class FinderStore: @unchecked Sendable {
         }
     }
 
+    /// Each file once, at its latest open, newest first; opens older than 7 days are left out.
+    public func recentFiles(now: Date = Date(), limit: Int = 200) throws -> [RecentFolder] {
+        let sql = "SELECT path, MAX(opened_at) AS at FROM file_opens GROUP BY path ORDER BY at DESC LIMIT ?"
+        return try db.query(sql, [.int(Int64(limit))]).compactMap { r in
+            guard let p = r["path"]?.string, let d = r["at"]?.string.flatMap(parseISO8601),
+                  let band = RecentBand.label(for: d, now: now) else { return nil }
+            return RecentFolder(path: p, visited: d, band: band)
+        }
+    }
+
+    public func logOpen(path: String) throws {
+        try db.exec("INSERT INTO file_opens(path,opened_at,app) VALUES(?,?,NULL)", [.text(path), .text(iso8601Now())])
+    }
+
+    /// Remove a file from Files Opened by deleting its recorded opens.
+    public func deleteOpens(of path: String) throws {
+        try db.exec("DELETE FROM file_opens WHERE path=?", [.text(path)])
+    }
+
     /// Remove a folder from Recent Locations; its history is kept.
     public func hideRecent(_ path: String) throws {
         try db.exec("INSERT OR IGNORE INTO recent_hidden(path) VALUES(?)", [.text(path)])

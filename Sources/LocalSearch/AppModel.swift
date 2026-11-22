@@ -159,13 +159,17 @@ final class AppModel {
     func goForward() { if let t = current.forwardTarget { navigate(t, .forward) } }
     func goUp() { if let p = current.parentPath { navigate(p, .parent) } }
 
+    func openFile(_ path: String) {
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+        try? store?.logOpen(path: path)
+        historyVersion += 1
+    }
+
     func open(_ entry: FileEntry, newTab: Bool = false) {
         if entry.isDirectory {
             if newTab { self.newTab(path: entry.path) } else { navigate(entry.path, .click) }
         } else {
-            NSWorkspace.shared.open(entry.url)
-            try? store?.db.exec("INSERT INTO file_opens(path,opened_at,app) VALUES(?,?,NULL)",
-                                [.text(entry.path), .text(iso8601Now())])
+            openFile(entry.path)
         }
     }
 
@@ -350,8 +354,7 @@ final class AppModel {
         if isDirectory {
             if newTab { self.newTab(path: path) } else { navigate(path, .quickFind) }
         } else if newTab {
-            NSWorkspace.shared.open(URL(fileURLWithPath: path))
-            try? store?.db.exec("INSERT INTO file_opens(path,opened_at,app) VALUES(?,?,NULL)", [.text(path), .text(iso8601Now())])
+            openFile(path)
         } else {
             pendingSelection = path
             navigate((path as NSString).deletingLastPathComponent, .quickFind)
