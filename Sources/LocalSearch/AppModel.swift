@@ -192,6 +192,12 @@ final class AppModel {
 
     // MARK: Tabs
 
+    /// ⇧⌘] and ⇧⌘[: the next or previous tab, wrapping around.
+    func selectAdjacentTab(_ delta: Int) {
+        guard tabs.count > 1, let i = tabIndex else { return }
+        selectTab(tabs[(i + delta + tabs.count) % tabs.count].id)
+    }
+
     func selectTab(_ id: UUID) {
         guard id != selectedTabID, let t = tabs.first(where: { $0.id == id }) else { return }
         selectedTabID = id

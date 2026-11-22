@@ -1179,3 +1179,37 @@ private func tempDir() throws -> String {
         #expect(checked > f.actions.count)
     }
 }
+
+@Suite struct ShortcutTests {
+    @Test func noTwoShortcutsShareKeysInTheSamePlace() {
+        #expect(Shortcuts.clashes().isEmpty, "\(Shortcuts.clashes())")
+        // Global shortcuts also must not be shadowed by a place-specific one with the same keys.
+        let apps = Set(Shortcuts.all.filter { $0.scope == "App" }.map { $0.signature.replacingOccurrences(of: "App|", with: "") })
+        for s in Shortcuts.all where s.scope != "App" {
+            let sig = s.signature.replacingOccurrences(of: s.scope + "|", with: "")
+            #expect(!apps.contains(sig), "\(s.id) hides an app-wide shortcut")
+        }
+        #expect(Set(Shortcuts.all.map(\.id)).count == Shortcuts.all.count)
+    }
+    @Test func clashDetectionWorks() {
+        let a = ShortcutDef(id: "a", section: "x", title: "A", key: "t", mods: [.command], scope: "App", note: nil)
+        let b = ShortcutDef(id: "b", section: "x", title: "B", key: "T", mods: [.command], scope: "App", note: nil)
+        let c = ShortcutDef(id: "c", section: "x", title: "C", key: "t", mods: [.command], scope: "Quick Find", note: nil)
+        #expect(Shortcuts.clashes([a, b, c]).count == 1)
+    }
+    @Test func displayUsesMacOrder() {
+        #expect(Shortcuts.def("copyText").display == "⌥⇧⌘C")
+        #expect(Shortcuts.def("sidebar").display == "⌃⌘S")
+        #expect(Shortcuts.def("commands").display == "⌃`")
+        #expect(Shortcuts.def("up").display == "⌘↑")
+        #expect(Shortcuts.def("trash").display == "⌘⌫")
+        #expect(Shortcuts.def("quickLook").display == "Space")
+        #expect(Shortcuts.def("shortcutsKey").display == "?")
+    }
+    @Test func importantFinderHabitsKept() {
+        // Same keys as Finder where there is an equivalent.
+        #expect(Shortcuts.def("goToFolder").display == "⇧⌘G" && Shortcuts.def("moveHere").display == "⌥⌘V")
+        #expect(Shortcuts.def("newFolder").display == "⇧⌘N" && Shortcuts.def("hidden").display == "⇧⌘.")
+        #expect(Shortcuts.def("info").display == "⌘I" && Shortcuts.def("sidebar").display == "⌃⌘S")
+    }
+}

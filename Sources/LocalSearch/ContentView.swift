@@ -387,6 +387,7 @@ extension FileColor {
 }
 
 struct FileListView: View {
+    @Environment(\.openWindow) private var openWindow
     @AppStorage("lsColors") private var lsColors = false
     @Environment(AppModel.self) private var model
     @AppStorage("groupByDate") private var groupByDate = false
@@ -485,6 +486,7 @@ struct FileListView: View {
             for e in rows where ids.contains(e.path) && !e.isHeader { model.open(e, newTab: cmd, insidePackage: inside) }
         }
         .onKeyPress(.space) { model.quickLook(); return .handled }
+        .onKeyPress(characters: CharacterSet(charactersIn: "?")) { _ in openWindow(id: "shortcuts"); return .handled }
         .onKeyPress(.return) {
             guard model.renamingPath == nil, model.selection.count == 1 else { return .ignored }
             model.beginRename(); return .handled

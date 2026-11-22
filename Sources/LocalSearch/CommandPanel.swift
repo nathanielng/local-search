@@ -149,9 +149,9 @@ struct CommandPanel: View {
                     }
                 VStack(spacing: 4) {
                     if running {
-                        Button("Stop") { model.stopCommand() }.keyboardShortcut(".", modifiers: .command)
+                        Button("Stop") { model.stopCommand() }.shortcut("stop")
                     } else {
-                        Button("Run") { run() }.keyboardShortcut(.return, modifiers: .command)
+                        Button("Run") { run() }.shortcut("run")
                             .disabled(command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     if let a = active, a.explain?.isEmpty == false {
