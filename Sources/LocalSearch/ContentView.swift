@@ -159,6 +159,7 @@ struct SidebarView: View {
                 .contextMenu {
                     Button("Open in New Tab") { model.newTab(path: item.1) }
                     if title == "Favorites" { Button("Remove from Favorites") { model.removeFavorite(item.1) } }
+                    if title == "Special Folders" { Button("Remove from Special Folders") { model.removeSpecialFolder(item.1) } }
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.1)]) }
                 }
             }
@@ -206,6 +207,10 @@ struct FileListView: View {
         .contextMenu(forSelectionType: String.self) { ids in
             if !ids.isEmpty {
                 if ids.count == 1 { Button("Rename") { model.renamingPath = ids.first } }
+                if ids.count == 1, let e = rows.first(where: { ids.contains($0.path) }), e.isDirectory {
+                    Button("Add to Favorites") { try? model.store?.addFavorite(path: e.path); model.sidebarVersion += 1 }
+                    Button("Add to Special Folders") { model.addSpecialFolder(e.path) }
+                }
                 Button("Quick Look") { model.quickLook() }
                 Button("Show in Finder") { model.showInFinder() }
                 Button("Copy") { model.copyFiles() }

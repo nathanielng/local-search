@@ -35,7 +35,7 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 ## Not yet tested by hand
 
 - Quick Find: the matched part of a file name is shown in bold accent colour (new), and the "No matches" hint about macOS privacy; ⌘↩ (new tab / open file); revealing a file selects it in its folder
-- The notes special folder now points at `…/Documents/REMOVED` (check the row opens the vault)
+- Special folders: right-click a folder in the list › Add to Special Folders; right-click a Special Folders row › Remove (new). A new database seeds them from settings.json
 - Dropping a file onto a tab (moves into the tab's folder)
 - Dragging into Slack specifically; a browser upload field
 - Dropping a file on a Locations or Config row

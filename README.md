@@ -51,6 +51,19 @@ History reveals file names and work patterns, so it stays on this Mac:
 
 Use History › Clear, the retention setting, or CSV export to manage it. Nothing is sent anywhere.
 
+## Personal configuration
+
+Nothing personal is hard-coded or committed. Special Folders (the top sidebar section) start empty; add one
+with right-click › Add to Special Folders on a folder. A brand-new database can also be seeded from
+`~/Library/Application Support/LocalSearch/settings.json`:
+
+```json
+{ "special_folders": [ { "title": "Notes", "path": "~/some/folder" } ] }
+```
+
+That file lives outside the repo. The signing certificate for stable folder permissions is described in
+[docs/SIGNING.md](docs/SIGNING.md).
+
 ## MCP server
 
 `dist/LocalSearch.app/Contents/MacOS/local-search-mcp` speaks MCP `2025-06-18` over stdio and reads the

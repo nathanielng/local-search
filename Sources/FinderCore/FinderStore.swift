@@ -19,8 +19,12 @@ public final class FinderStore: @unchecked Sendable {
     public static let schemaVersion = 6
     public let db: Database
 
-    public init(path: String = AppPaths.databaseURL.path) throws {
+    private let settingsURL: URL?
+
+    /// `settingsURL` is only read when the database is first created (to seed special folders).
+    public init(path: String = AppPaths.databaseURL.path, settingsURL: URL? = nil) throws {
         db = try Database(path: path)
+        self.settingsURL = settingsURL
         try migrate()
     }
 
@@ -28,24 +32,12 @@ public final class FinderStore: @unchecked Sendable {
 
     private func migrate() throws {
         let v = try db.query("PRAGMA user_version").first?["user_version"]?.int ?? 0
-        defer { try? fixLegacySeeds() }
         guard v < Int64(Self.schemaVersion) else { return }
         try db.transaction {
             for sql in Self.schema { try db.exec(sql) }
             try db.exec("PRAGMA user_version = \(Self.schemaVersion)")
         }
         if v == 0 { try seedDefaults() }
-    }
-
-    static var REMOVED: String { "\(AppPaths.home)/REMOVED_PATH" }
-
-    /// One-time fixes to rows that earlier versions seeded wrongly.
-    private func fixLegacySeeds() throws {
-        guard kv("fix_notes_vault_path") == nil else { return }
-        let old = "\(AppPaths.home)/REMOVED_PATH"
-        try db.exec("UPDATE OR IGNORE special_folders SET path=? WHERE path=? AND title='notes'",
-                    [.text(Self.REMOVED), .text(old)])
-        setKV("fix_notes_vault_path", "1")
     }
 
     static let schema = [
@@ -88,9 +80,33 @@ public final class FinderStore: @unchecked Sendable {
             try addFavorite(path: "\(h)/\(n)", title: n, position: i)
         }
         try addFavorite(path: "/Applications", title: "Applications", position: 3)
-        try db.exec("INSERT OR IGNORE INTO special_folders(path,title,position) VALUES(?,?,0)", [.text(Self.REMOVED), "notes"])
-        try db.exec("INSERT OR IGNORE INTO special_folders(path,title,position) VALUES(?,?,1)", [.text("\(h)/media"), "media"])
+        // Special folders are personal, so they are never hard-coded: a new database takes them from the
+        // local settings.json (`special_folders`: [{"title": …, "path": …}]), if present.
+        if let url = settingsURL { try seedSpecialFolders(from: url) }
     }
+
+    /// Reads `special_folders` from a settings.json. Paths may start with `~/`. Missing file or key: nothing happens.
+    public func seedSpecialFolders(from url: URL) throws {
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = obj["special_folders"] as? [[String: Any]] else { return }
+        for item in list.prefix(Self.sidebarLimit) {
+            guard let path = item["path"] as? String else { continue }
+            let full = (path as NSString).expandingTildeInPath
+            try addSpecialFolder(path: full, title: item["title"] as? String)
+        }
+    }
+
+    @discardableResult
+    public func addSpecialFolder(path: String, title: String? = nil) throws -> Bool {
+        let count = try db.query("SELECT COUNT(*) AS n FROM special_folders").first?["n"]?.int ?? 0
+        guard count < Int64(Self.sidebarLimit) else { return false }
+        try db.exec("INSERT OR IGNORE INTO special_folders(path,title,position) VALUES(?,?,?)",
+                    [.text(path), .text(title ?? (path as NSString).lastPathComponent), .int(count)])
+        return true
+    }
+
+    public func removeSpecialFolder(path: String) throws { try db.exec("DELETE FROM special_folders WHERE path=?", [.text(path)]) }
 
     // MARK: Tabs
 

@@ -2,10 +2,10 @@ import Foundation
 import FinderCore
 
 // Newline-delimited JSON-RPC 2.0 over stdio (MCP 2025-06-18). No network listener.
-let store = try FinderStore()
+let store = try FinderStore(settingsURL: AppPaths.settingsURL)
 let pid = ProcessInfo.processInfo.processIdentifier
 store.setKV("mcp_status:\(pid)", iso8601Now())
-atexit { if let s = try? FinderStore() { s.deleteKV("mcp_status:\(ProcessInfo.processInfo.processIdentifier)") } }
+atexit { if let s = try? FinderStore(settingsURL: AppPaths.settingsURL) { s.deleteKV("mcp_status:\(ProcessInfo.processInfo.processIdentifier)") } }
 
 func send(_ obj: [String: Any]) {
     guard let d = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]),

@@ -22,5 +22,14 @@ cat > "$APP/Contents/Info.plist" <<PL
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PL
-codesign --force --sign - --deep "$APP"
+# Sign with a stable local identity so macOS keeps the folder-access permissions across rebuilds.
+# See docs/SIGNING.md. Falls back to an ad-hoc signature (permissions are then re-asked every build).
+IDENTITY="${LOCALSEARCH_SIGN_IDENTITY:-LocalSearch Dev}"
+if security find-identity -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
+  codesign --force --sign "$IDENTITY" --deep "$APP"
+  echo "Signed with \"$IDENTITY\""
+else
+  codesign --force --sign - --deep "$APP"
+  echo "No \"$IDENTITY\" identity found: signed ad-hoc (macOS will re-ask for folder access after each build)"
+fi
 echo "Built $APP"

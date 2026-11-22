@@ -32,7 +32,7 @@ final class AppModel {
     var retentionDays = 0 { didSet { store?.setKV("retention_days", String(retentionDays)) } }
 
     init() {
-        let s = try? FinderStore()
+        let s = try? FinderStore(settingsURL: AppPaths.settingsURL)
         store = s
         var tabs: [TabState] = []
         var sel: UUID?
@@ -295,6 +295,16 @@ final class AppModel {
             ? (try? store?.moveFavorite(path, relativeTo: target, after: after))
             : (try? store?.moveSpecialFolder(path, relativeTo: target, after: after))
         if ok == true { sidebarVersion += 1 }
+    }
+
+    func addSpecialFolder(_ path: String) {
+        if (try? store?.addSpecialFolder(path: path)) == false { warning = "Special Folders is full (20 items)" }
+        sidebarVersion += 1
+    }
+
+    func removeSpecialFolder(_ path: String) {
+        try? store?.removeSpecialFolder(path: path)
+        sidebarVersion += 1
     }
 
     func removeFavorite(_ path: String) {

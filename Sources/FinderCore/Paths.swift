@@ -21,6 +21,7 @@ public enum AppPaths {
         }
     }
     public static var databaseURL: URL { supportDir.appendingPathComponent("localsearch.sqlite") }
+    public static var settingsURL: URL { supportDir.appendingPathComponent("settings.json") }
     public static var home: String { NSHomeDirectory() }
 }
 

@@ -100,19 +100,25 @@ private func tempStore() throws -> FinderStore {
         #expect(try s.favorites().map(\.path).prefix(2) == ["\(h)/Documents", "\(h)/Desktop"])
         #expect(try s.moveFavorite("/nope", relativeTo: "/Applications", after: true) == false)
         #expect(try s.moveFavorite("/Applications", relativeTo: "/Applications", after: true) == false)
-        try s.moveSpecialFolder("\(h)/media", relativeTo: try s.specialFolders()[0].path, after: false)
-        #expect(try s.specialFolders().first?.title == "media")
+        try s.addSpecialFolder(path: "/tmp/one", title: "One")
+        try s.addSpecialFolder(path: "/tmp/two", title: "Two")
+        try s.moveSpecialFolder("/tmp/two", relativeTo: "/tmp/one", after: false)
+        #expect(try s.specialFolders().map(\.title) == ["Two", "One"])
     }
-    @Test func notesPointsAtTheVaultAndOldRowsAreFixed() throws {
-        let path = NSTemporaryDirectory() + "af-\(UUID().uuidString).sqlite"
-        let s = try FinderStore(path: path)
-        #expect(try s.specialFolders().first?.path.hasSuffix("/REMOVED/Documents/REMOVED") == true)
-        // simulate a database seeded by an earlier version
-        let old = AppPaths.home + "/REMOVED_PATH"
-        try s.db.exec("UPDATE special_folders SET path=? WHERE title='notes'", [.text(old)])
-        s.deleteKV("fix_notes_vault_path")
-        let again = try FinderStore(path: path)
-        #expect(try again.specialFolders().first?.path.hasSuffix("/Documents/REMOVED") == true)
+    @Test func specialFoldersComeFromSettingsNotCode() throws {
+        // a fresh database has none of its own
+        #expect(try tempStore().specialFolders().isEmpty)
+        // they are seeded once from settings.json (with ~ expansion), only when the database is created
+        let dir = try tempDir()
+        let settings = URL(fileURLWithPath: dir + "/settings.json")
+        try Data(#"{"special_folders":[{"title":"Notes","path":"~/example-notes"},{"title":"Media","path":"/tmp/example-media"}]}"#.utf8).write(to: settings)
+        let dbPath = dir + "/db.sqlite"
+        let s = try FinderStore(path: dbPath, settingsURL: settings)
+        #expect(try s.specialFolders().map(\.title) == ["Notes", "Media"])
+        #expect(try s.specialFolders()[0].path == AppPaths.home + "/example-notes")
+        try s.removeSpecialFolder(path: "/tmp/example-media")
+        let again = try FinderStore(path: dbPath, settingsURL: settings) // reopening doesn't re-seed
+        #expect(try again.specialFolders().map(\.title) == ["Notes"])
     }
     @Test func schemaVersion() throws {
         let s = try tempStore()
