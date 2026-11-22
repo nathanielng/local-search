@@ -161,6 +161,12 @@ struct NavBar: View {
             Button { showKindBadges.toggle(); if !showKindBadges { model.clearKindFilter() } } label: {
                 Image(systemName: showKindBadges ? "tag.fill" : "tag")
             }.help("Show or hide Kind badges: filter this folder by type")
+            Menu {
+                Picker("Date column", selection: Binding(get: { model.dateMode }, set: { model.dateMode = $0 })) {
+                    ForEach(DateMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                }.pickerStyle(.inline)
+            } label: { Image(systemName: "calendar") }
+                .menuIndicator(.hidden).fixedSize().help("Date column: Added or Modified, Modified, or Added")
             Button { model.toggleFavorite() } label: {
                 Image(systemName: model.store?.isFavorite(model.current.path) == true ? "star.fill" : "star")
             }
@@ -304,7 +310,7 @@ struct FileListView: View {
         guard groupByDate, model.current.sortKey == "date" else { return items }
         var out: [FileEntry] = [], last = ""
         for e in items {
-            let g = DateGroup.label(for: e.addedOrModified)
+            let g = DateGroup.label(for: e.date(model.dateMode))
             if g != last { out.append(.header(g)); last = g }
             out.append(e)
         }
@@ -337,8 +343,8 @@ struct FileListView: View {
                 .modifier(FolderRowDrop(model: model, entry: e))
                 }
             }
-            TableColumn("Added or Modified", value: \.addedOrModified) { e in
-                if !e.isHeader { Text(e.addedOrModified.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(.secondary) }
+            TableColumn(model.dateMode.title, value: \.addedOrModified) { e in
+                if !e.isHeader { Text(e.date(model.dateMode).formatted(date: .abbreviated, time: .shortened)).foregroundStyle(.secondary) }
             }.width(min: 120, ideal: 150)
             TableColumn("Size", value: \.sizeKey) { e in
                 if !e.isHeader { Text(e.isDirectory ? "--" : ByteCountFormatter.string(fromByteCount: e.size, countStyle: .file)).foregroundStyle(.secondary) }

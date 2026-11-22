@@ -15,6 +15,9 @@ final class AppModel {
     var showAddressField = false
     var warning: String?
     var textSize: Double = 13 { didSet { store?.setKV("text_size", String(textSize)) } }
+    var dateMode: DateMode = DateMode(rawValue: UserDefaults.standard.string(forKey: "dateMode") ?? "") ?? .addedOrModified {
+        didSet { UserDefaults.standard.set(dateMode.rawValue, forKey: "dateMode") }
+    }
     var sidebarVersion = 0 // bump to refresh favorites
     var historyVersion = 0 // bump to refresh the History window
     var renamingPath: String?
@@ -78,7 +81,7 @@ final class AppModel {
             if a.isDirectory != b.isDirectory && t.sortKey == "name" { return a.isDirectory }
             let r: Bool
             switch t.sortKey {
-            case "date": r = a.addedOrModified < b.addedOrModified
+            case "date": r = a.date(dateMode) < b.date(dateMode)
             case "size": r = a.sizeKey < b.sizeKey
             case "kind": r = a.kind.localizedStandardCompare(b.kind) == .orderedAscending
             default: r = a.name.localizedStandardCompare(b.name) == .orderedAscending

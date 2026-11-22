@@ -73,3 +73,4 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 7. Quick Find "didn't find memo.md" right after a rebuild: macOS had withdrawn the app's Desktop permission, and Spotlight hides files in protected folders from an app without it (TCC logged the new grant at the moment it was answered). Not a search bug. A stable signing identity would stop this.
 
 - File colours (⌃⌘K and View menu toggle, confirmed by the user): ls-style name colours
+- Date column switcher (calendar button in the path bar, View > Date Column): Added or Modified / Modified / Added changes the column title, the dates shown, the sort and Group by Date; not yet tested by hand (the assistant checked the Modified header live)

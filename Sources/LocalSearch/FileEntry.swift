@@ -23,6 +23,9 @@ struct FileEntry: Identifiable, Hashable, Sendable {
 
     /// "Added or Modified": the later of the two.
     var addedOrModified: Date { max(modified, added) }
+    func date(_ mode: DateMode) -> Date {
+        switch mode { case .addedOrModified: addedOrModified; case .modified: modified; case .added: added }
+    }
     var url: URL { URL(fileURLWithPath: path) }
     var sizeKey: Int64 { isDirectory ? -1 : size }
 
@@ -52,4 +55,12 @@ struct FileEntry: Identifiable, Hashable, Sendable {
 
 extension FileEntry {
     var color: FileColor { FileColor.classify(name: name, isDirectory: isDirectory, isSymlink: isSymlink, isExecutable: isExecutable) }
+}
+
+/// Which date the date column shows, sorts by and groups by.
+enum DateMode: String, CaseIterable {
+    case addedOrModified, modified, added
+    var title: String {
+        switch self { case .addedOrModified: "Added or Modified"; case .modified: "Modified"; case .added: "Added" }
+    }
 }

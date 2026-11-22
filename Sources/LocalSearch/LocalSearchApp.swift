@@ -83,6 +83,9 @@ struct AppCommands: Commands {
                     if model.current.sortAscending { model.setSort(key: "date") }
                 }
             }.keyboardShortcut("g", modifiers: [.command, .control])
+            Picker("Date Column", selection: Binding(get: { model.dateMode }, set: { model.dateMode = $0 })) {
+                ForEach(DateMode.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
             Button(lsColors ? "Hide File Colours" : "Show File Colours") { lsColors.toggle() }.keyboardShortcut("k", modifiers: [.command, .control])
             Button(showKindBadges ? "Hide Kind Badges" : "Show Kind Badges") {
                 showKindBadges.toggle(); if !showKindBadges { model.clearKindFilter() }
