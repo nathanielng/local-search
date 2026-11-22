@@ -19,6 +19,7 @@ struct LocalSearchApp: App {
 struct AppCommands: Commands {
     let model: AppModel
     @Environment(\.openWindow) private var openWindow
+    private var editingText: Bool { NSApp.keyWindow?.firstResponder is NSText }
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Tab") { model.newTab() }.keyboardShortcut("t")
@@ -26,6 +27,20 @@ struct AppCommands: Commands {
             Button("Reopen Closed Tab") { model.reopenTab() }.keyboardShortcut("t", modifiers: [.command, .shift])
             Divider()
             Button("New Folder") { model.newFolder() }.keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("New Text File") { model.newTextFile() }.keyboardShortcut("n", modifiers: [.command, .option])
+            Button("Rename") { model.beginRename() }
+            Button("Move to Trash") { model.trashSelection() }.keyboardShortcut(.delete, modifiers: .command)
+            Button("Show in Finder") { model.showInFinder() }.keyboardShortcut("r", modifiers: [.command, .option])
+        }
+        // Copy/Paste act on files unless a text field is being edited.
+        CommandGroup(replacing: .pasteboard) {
+            Button("Cut") { NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil) }.keyboardShortcut("x")
+            Button("Copy") { if editingText { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) } else { model.copyFiles() } }.keyboardShortcut("c")
+            Button("Paste") { if editingText { NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) } else { model.pasteFiles() } }.keyboardShortcut("v")
+            Button("Select All") { NSApp.sendAction(#selector(NSResponder.selectAll(_:)), to: nil, from: nil) }.keyboardShortcut("a")
+            Divider()
+            Button("Copy Paths") { model.copyPaths() }.keyboardShortcut("c", modifiers: [.command, .option])
+            Button("Copy File Text for AI") { model.copyFileText() }.keyboardShortcut("c", modifiers: [.command, .option, .shift])
         }
         CommandMenu("Go") {
             Button("Back") { model.goBack() }.keyboardShortcut("[")

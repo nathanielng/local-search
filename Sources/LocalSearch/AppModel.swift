@@ -17,6 +17,8 @@ final class AppModel {
     var textSize: Double = 13 { didSet { store?.setKV("text_size", String(textSize)) } }
     var sidebarVersion = 0 // bump to refresh favorites
     var historyVersion = 0 // bump to refresh the History window
+    var renamingPath: String?
+    var copyJob: CopyJob?
     var retentionDays = 0 { didSet { store?.setKV("retention_days", String(retentionDays)) } }
 
     init() {
@@ -230,13 +232,7 @@ final class AppModel {
         let kind: FileOpKind = (mode == .copyIntoCurrent || option) ? .copy : .move
         if mode == .copyIntoCurrent { paths.removeAll { ($0 as NSString).deletingLastPathComponent == folder } }
         guard !paths.isEmpty else { return }
-        let sources = paths
-        Task {
-            let results = await Task.detached { FileOps.perform(kind, sources: sources, into: folder, store: store) }.value
-            let refused = results.filter { $0.result != "done" }
-            warning = refused.isEmpty ? nil : "\(refused.count) item(s) not \(kind == .move ? "moved" : "copied"): \(refused[0].message ?? refused[0].result)"
-            refresh(); historyVersion += 1
-        }
+        runJob(kind, paths: paths, into: folder)
     }
 
     func openFolder(_ path: String, newTab: Bool) {
@@ -244,18 +240,6 @@ final class AppModel {
     }
 
     // MARK: File operations
-
-    func newFolder() {
-        let base = current.path
-        var name = "untitled folder", n = 2
-        while FileManager.default.fileExists(atPath: "\(base)/\(name)") { name = "untitled folder \(n)"; n += 1 }
-        let dst = "\(base)/\(name)"
-        do {
-            try FileManager.default.createDirectory(atPath: dst, withIntermediateDirectories: false)
-            logOp("create", src: nil, dst: dst, ok: true)
-            refresh(); selection = [dst]
-        } catch { warning = error.localizedDescription; logOp("create", src: nil, dst: dst, ok: false) }
-    }
 
     func trash(_ paths: [String]) {
         for p in paths {

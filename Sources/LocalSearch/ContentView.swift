@@ -13,6 +13,14 @@ struct ContentView: View {
                 NavBar()
                 Divider()
                 FileListView()
+                if let job = model.copyJob {
+                    HStack {
+                        ProgressView(value: Double(job.done), total: Double(max(job.total, 1))).frame(maxWidth: 220)
+                        Text("\(job.title) \(job.done) of \(job.total)").font(.caption)
+                        Button("Stop") { job.token.cancel() }.controlSize(.small)
+                        Spacer()
+                    }.padding(6)
+                }
                 if let w = model.warning {
                     Text(w).font(.caption).padding(4).frame(maxWidth: .infinity, alignment: .leading)
                         .background(.yellow.opacity(0.25))
@@ -127,7 +135,10 @@ struct FileListView: View {
             TableColumn("Name") { e in
                 HStack(spacing: 6) {
                     Image(nsImage: NSWorkspace.shared.icon(forFile: e.path)).resizable().frame(width: 16, height: 16)
-                    Text(e.name).lineLimit(1)
+                    if model.renamingPath == e.path {
+                        RenameField(initial: e.name, isDirectory: e.isDirectory,
+                                    onCommit: { model.commitRename(e.path, to: $0) }, onCancel: { model.renamingPath = nil })
+                    } else { Text(e.name).lineLimit(1) }
                     if e.isOnlineOnly { Image(systemName: "icloud").font(.caption).foregroundStyle(.secondary) }
                 }
             }
@@ -143,13 +154,27 @@ struct FileListView: View {
         .background(AppKitDragFix(selectedPaths: { Array(model.selection) }))
         .onDrop(of: [.fileURL], delegate: FolderDropDelegate(model: model, path: model.current.path, mode: .copyIntoCurrent) { _ in })
         .contextMenu(forSelectionType: String.self) { ids in
-            if !ids.isEmpty { Button("Move to Trash") { model.trash(Array(ids)) } }
+            if !ids.isEmpty {
+                if ids.count == 1 { Button("Rename") { model.renamingPath = ids.first } }
+                Button("Quick Look") { model.quickLook() }
+                Button("Show in Finder") { model.showInFinder() }
+                Button("Copy") { model.copyFiles() }
+                Button("Copy Paths") { model.copyPaths() }
+                Button("Move to Trash") { model.trash(Array(ids)) }
+                Divider()
+            }
             Button("New Folder") { model.newFolder() }
+            Button("New Text File") { model.newTextFile() }
+            Button("Paste") { model.pasteFiles() }
         } primaryAction: { ids in
             let cmd = NSEvent.modifierFlags.contains(.command)
             for e in rows where ids.contains(e.path) { model.open(e, newTab: cmd) }
         }
-        .onKeyPress(.space) { quickLook(); return .handled }
+        .onKeyPress(.space) { model.quickLook(); return .handled }
+        .onKeyPress(.return) {
+            guard model.renamingPath == nil, model.selection.count == 1 else { return .ignored }
+            model.beginRename(); return .handled
+        }
         .overlay(alignment: .topTrailing) { sortMenu }
     }
 
@@ -160,10 +185,5 @@ struct FileListView: View {
             }
         } label: { Image(systemName: "arrow.up.arrow.down") }
             .menuStyle(.borderlessButton).frame(width: 30).padding(4)
-    }
-
-    private func quickLook() {
-        guard let p = model.selection.first else { return }
-        NSWorkspace.shared.open(URL(fileURLWithPath: p)) // placeholder until QLPreviewPanel is wired up
     }
 }
