@@ -81,18 +81,3 @@ struct HistoryView: View {
         try? FinderStore.csv(entries).write(to: url, atomically: true, encoding: .utf8)
     }
 }
-
-struct SettingsView: View {
-    @Environment(AppModel.self) private var model
-    var body: some View {
-        @Bindable var m = model
-        Form {
-            Picker("Keep history for", selection: $m.retentionDays) {
-                Text("Forever").tag(0); Text("30 days").tag(30); Text("90 days").tag(90); Text("1 year").tag(365)
-            }
-            Text("History is stored locally in ~/Library/Application Support/LocalSearch/. Older entries are removed at launch.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(20).frame(width: 420)
-    }
-}

@@ -171,6 +171,7 @@ public final class FinderStore: @unchecked Sendable {
     // MARK: History
 
     public func logVisit(tabID: UUID, path: String, source: NavSource) throws {
+        if isIgnored(path) { return }
         try db.exec("DELETE FROM recent_hidden WHERE path=?", [.text(path)]) // a new visit brings a hidden folder back
         try db.exec("INSERT INTO nav_history(tab_id,path,source,visited_at) VALUES(?,?,?,?)",
                     [.text(tabID.uuidString), .text(path), .text(source.rawValue), .text(iso8601Now())])
@@ -208,8 +209,9 @@ public final class FinderStore: @unchecked Sendable {
     public func recentFolders(now: Date = Date(), limit: Int = 200) throws -> [RecentFolder] {
         let sql = "SELECT path, MAX(visited_at) AS at FROM nav_history WHERE path NOT IN (SELECT path FROM recent_hidden) GROUP BY path ORDER BY at DESC LIMIT ?"
         let rows = try db.query(sql, [.int(Int64(limit))])
+        let ignored = ignoredFolders()
         return rows.compactMap { r in
-            guard let p = r["path"]?.string, let d = r["at"]?.string.flatMap(parseISO8601),
+            guard let p = r["path"]?.string, !Self.isIgnored(p, in: ignored), let d = r["at"]?.string.flatMap(parseISO8601),
                   let band = RecentBand.label(for: d, now: now) else { return nil }
             return RecentFolder(path: p, visited: d, band: band)
         }
@@ -218,14 +220,16 @@ public final class FinderStore: @unchecked Sendable {
     /// Each file once, at its latest open, newest first; opens older than 7 days are left out.
     public func recentFiles(now: Date = Date(), limit: Int = 200) throws -> [RecentFolder] {
         let sql = "SELECT path, MAX(opened_at) AS at FROM file_opens GROUP BY path ORDER BY at DESC LIMIT ?"
+        let ignored = ignoredFolders()
         return try db.query(sql, [.int(Int64(limit))]).compactMap { r in
-            guard let p = r["path"]?.string, let d = r["at"]?.string.flatMap(parseISO8601),
+            guard let p = r["path"]?.string, !Self.isIgnored(p, in: ignored), let d = r["at"]?.string.flatMap(parseISO8601),
                   let band = RecentBand.label(for: d, now: now) else { return nil }
             return RecentFolder(path: p, visited: d, band: band)
         }
     }
 
     public func logOpen(path: String) throws {
+        if isIgnored(path) { return }
         try db.exec("INSERT INTO file_opens(path,opened_at,app) VALUES(?,?,NULL)", [.text(path), .text(iso8601Now())])
     }
 

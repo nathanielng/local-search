@@ -729,3 +729,39 @@ private func tempDir() throws -> String {
         #expect(WebLocations.load(from: s).count == 2)
     }
 }
+
+@Suite struct IgnoredFoldersTests {
+    @Test func normaliseAndMatch() {
+        #expect(FinderStore.normalizedIgnored("/a/b/") == "/a/b")
+        #expect(FinderStore.normalizedIgnored("/") == nil)
+        #expect(FinderStore.normalizedIgnored("") == nil)
+        #expect(FinderStore.normalizedIgnored("~/x") == NSHomeDirectory() + "/x")
+        #expect(FinderStore.isIgnored("/a/b", in: ["/a/b"]))
+        #expect(FinderStore.isIgnored("/a/b/c/d", in: ["/a/b"]))
+        #expect(!FinderStore.isIgnored("/a/bc", in: ["/a/b"]))
+    }
+    @Test func ignoredPathsAreNotRecorded() throws {
+        let s = try tempStore(), t = UUID()
+        s.setIgnoredFolders(["/secret/", "/secret", "/"])
+        #expect(s.ignoredFolders() == ["/secret"])
+        try s.logVisit(tabID: t, path: "/secret/inner", source: .click)
+        try s.logOpen(path: "/secret/file.txt")
+        try s.logVisit(tabID: t, path: "/open/one", source: .click)
+        try s.logOpen(path: "/open/file.txt")
+        #expect(try s.navigationHistory().map(\.path) == ["/open/one"])
+        #expect(try s.recentFiles().map(\.path) == ["/open/file.txt"])
+    }
+    @Test func newIgnoreHidesRecentAndCanDeleteExisting() throws {
+        let s = try tempStore(), t = UUID()
+        try s.logVisit(tabID: t, path: "/p/a", source: .click)
+        try s.logVisit(tabID: t, path: "/p/a/sub", source: .click)
+        try s.logVisit(tabID: t, path: "/p/ab", source: .click)
+        try s.logOpen(path: "/p/a/f.txt")
+        s.setIgnoredFolders(["/p/a"])
+        #expect(try s.recentFolders().map(\.path) == ["/p/ab"])      // hidden from Recent at once
+        #expect(try s.navigationHistory().count == 3)               // history kept until deleted
+        #expect(try s.deleteHistory(under: "/p/a") == 3)
+        #expect(try s.navigationHistory().map(\.path) == ["/p/ab"])
+        #expect(try s.recentFiles().isEmpty)
+    }
+}

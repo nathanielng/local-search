@@ -12,6 +12,7 @@ final class AppModel {
     var loadedTabs: Set<UUID> = []
     var selection: Set<String> = []
     var showHidden = false
+    var ignoredFolders: [String] = []
     var showAddressField = false
     var warning: String?
     var textSize: Double = 13 { didSet { store?.setKV("text_size", String(textSize)) } }
@@ -63,6 +64,7 @@ final class AppModel {
         showHidden = s?.kv("show_hidden") == "1"
         textSize = Double(s?.kv("text_size") ?? "") ?? 13
         retentionDays = Int(s?.kv("retention_days") ?? "") ?? 0
+        ignoredFolders = s?.ignoredFolders() ?? []
         try? s?.purgeHistory(olderThanDays: retentionDays)
         networkLocations = NetworkLocation.load()
         watchVolumes()
