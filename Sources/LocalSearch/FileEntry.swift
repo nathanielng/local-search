@@ -1,3 +1,4 @@
+import FinderCore
 import Foundation
 import UniformTypeIdentifiers
 
@@ -11,6 +12,8 @@ struct FileEntry: Identifiable, Hashable, Sendable {
     let added: Date
     let kind: String
     let isOnlineOnly: Bool
+    var isSymlink = false
+    var isExecutable = false
     /// A section header row (Group by Date); never selectable, draggable or openable.
     var isHeader = false
 
@@ -28,7 +31,7 @@ struct FileEntry: Identifiable, Hashable, Sendable {
     static func list(_ folder: String, showHidden: Bool) throws -> [FileEntry] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
                                       .addedToDirectoryDateKey, .localizedTypeDescriptionKey, .isHiddenKey,
-                                      .ubiquitousItemDownloadingStatusKey]
+                                      .ubiquitousItemDownloadingStatusKey, .isSymbolicLinkKey, .isExecutableKey]
         let urls = try FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: folder),
                                                                includingPropertiesForKeys: keys, options: [])
         return urls.compactMap { u in
@@ -41,7 +44,12 @@ struct FileEntry: Identifiable, Hashable, Sendable {
             let online = v?.ubiquitousItemDownloadingStatus.map { $0 != .current && $0 != .downloaded } ?? false
             return FileEntry(path: u.path, name: name, isDirectory: isDir, size: Int64(v?.fileSize ?? 0),
                              modified: mod, added: v?.addedToDirectoryDate ?? mod,
-                             kind: isDir ? "Folder" : (v?.localizedTypeDescription ?? "Document"), isOnlineOnly: online)
+                             kind: isDir ? "Folder" : (v?.localizedTypeDescription ?? "Document"), isOnlineOnly: online,
+                             isSymlink: v?.isSymbolicLink ?? false, isExecutable: !isDir && (v?.isExecutable ?? false))
         }
     }
+}
+
+extension FileEntry {
+    var color: FileColor { FileColor.classify(name: name, isDirectory: isDirectory, isSymlink: isSymlink, isExecutable: isExecutable) }
 }

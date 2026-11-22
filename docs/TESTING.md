@@ -42,7 +42,7 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 
 ## Not yet tested by hand
 
-- Kind badges (tag button in the path bar, ⌃⌘B, View menu): strip with a count per kind; click to filter, click again or "Show all" to clear (checked by the assistant on Desktop); the filter applies only in the tab and folder where it was set
+- Kind badges (confirmed by the user; tag button in the path bar, ⌃⌘B, View menu): strip with a count per kind; click to filter, click again or "Show all" to clear (checked by the assistant on Desktop); the filter applies only in the tab and folder where it was set
 
 - Click a column header to sort by it and click again to reverse (checked by the assistant on Size); the arrow button at the top right removes all sorting
 
@@ -71,3 +71,5 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 5. A failed rename was easy to miss; it now shows an alert with the reason.
 6. A rebuilt app has a new ad-hoc signature, so macOS may block folder access again. The app now says so when a folder can't be read.
 7. Quick Find "didn't find memo.md" right after a rebuild: macOS had withdrawn the app's Desktop permission, and Spotlight hides files in protected folders from an app without it (TCC logged the new grant at the moment it was answered). Not a search bug. A stable signing identity would stop this.
+
+- File colours (⌃⌘K and View menu toggle, confirmed by the user): ls-style name colours

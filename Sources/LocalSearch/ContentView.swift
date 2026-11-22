@@ -279,7 +279,22 @@ struct OptionalFolderDrop: ViewModifier {
     }
 }
 
+extension FileColor {
+    var swiftUI: Color? {
+        switch self {
+        case .directory: .blue
+        case .symlink: .cyan
+        case .archive: .red
+        case .image, .video: .purple
+        case .audio: .teal
+        case .executable: .green
+        case .plain: nil
+        }
+    }
+}
+
 struct FileListView: View {
+    @AppStorage("lsColors") private var lsColors = false
     @Environment(AppModel.self) private var model
     @AppStorage("groupByDate") private var groupByDate = false
 
@@ -296,6 +311,11 @@ struct FileListView: View {
         return out
     }
 
+    private func nameColor(_ e: FileEntry) -> Color {
+        guard lsColors, let c = e.color.swiftUI else { return .primary }
+        return c
+    }
+
     var body: some View {
         @Bindable var m = model
         let rows = listRows
@@ -309,7 +329,7 @@ struct FileListView: View {
                     if model.renamingPath == e.path {
                         RenameField(initial: e.name, isDirectory: e.isDirectory,
                                     onCommit: { model.commitRename(e.path, to: $0) }, onCancel: { model.renamingPath = nil })
-                    } else { Text(e.name).lineLimit(1) }
+                    } else { Text(e.name).lineLimit(1).foregroundStyle(nameColor(e)) }
                     Spacer(minLength: 0)
                     if e.isOnlineOnly { Image(systemName: "icloud").font(.caption).foregroundStyle(.secondary) }
                 }
@@ -326,6 +346,7 @@ struct FileListView: View {
             TableColumn("Kind", value: \.kind) { e in if !e.isHeader { Text(e.kind).foregroundStyle(.secondary).lineLimit(1) } }.width(min: 80, ideal: 120)
         }
         .font(.system(size: model.textSize))
+        .id(lsColors)
         .background(AppKitDragFix(paths: rows.map { $0.isHeader ? "" : $0.path }))
         .onDrop(of: [.fileURL], delegate: FolderDropDelegate(model: model, path: model.current.path, mode: .copyIntoCurrent) { _, _ in })
         .contextMenu(forSelectionType: String.self) { ids in

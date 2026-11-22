@@ -21,6 +21,7 @@ struct AppCommands: Commands {
     @AppStorage("showSidebar") private var showSidebar = true
     @AppStorage("groupByDate") private var groupByDate = false
     @AppStorage("showKindBadges") private var showKindBadges = false
+    @AppStorage("lsColors") private var lsColors = false
     @Environment(\.openWindow) private var openWindow
     private var editingText: Bool { NSApp.keyWindow?.firstResponder is NSText }
     var body: some Commands {
@@ -82,6 +83,7 @@ struct AppCommands: Commands {
                     if model.current.sortAscending { model.setSort(key: "date") }
                 }
             }.keyboardShortcut("g", modifiers: [.command, .control])
+            Button(lsColors ? "Hide File Colours" : "Show File Colours") { lsColors.toggle() }.keyboardShortcut("k", modifiers: [.command, .control])
             Button(showKindBadges ? "Hide Kind Badges" : "Show Kind Badges") {
                 showKindBadges.toggle(); if !showKindBadges { model.clearKindFilter() }
             }.keyboardShortcut("b", modifiers: [.command, .control])

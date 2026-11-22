@@ -496,3 +496,16 @@ private func tempDir() throws -> String {
         #expect(DateGroup.label(for: mon, now: now, calendar: cal) == "Earlier This Week")
     }
 }
+
+@Suite struct FileColorTests {
+    @Test func categories() {
+        #expect(FileColor.classify(name: "a", isDirectory: true, isSymlink: false, isExecutable: false) == .directory)
+        #expect(FileColor.classify(name: "a", isDirectory: true, isSymlink: true, isExecutable: false) == .symlink)
+        #expect(FileColor.classify(name: "x.ZIP", isDirectory: false, isSymlink: false, isExecutable: false) == .archive)
+        #expect(FileColor.classify(name: "run.sh", isDirectory: false, isSymlink: false, isExecutable: true) == .executable)
+        #expect(FileColor.classify(name: "notes.txt", isDirectory: false, isSymlink: false, isExecutable: false) == .plain)
+    }
+    @Test func extensionBeatsExecutableBit() {
+        #expect(FileColor.classify(name: "pic.jpg", isDirectory: false, isSymlink: false, isExecutable: true) == .image)
+    }
+}
