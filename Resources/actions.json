@@ -1,5 +1,5 @@
 {
- "version": 4,
+ "version": 5,
  "actions": [
   {
    "id": "zip",
@@ -106,6 +106,55 @@
    "baseLabel": "Standard"
   },
   {
+   "id": "tar-zst",
+   "title": "Make tar.zst",
+   "group": "Archive",
+   "description": "Pack the selected items into a zstd-compressed tar archive: fast, and usually smaller than gzip.",
+   "command": "COPYFILE_DISABLE=1 tar -cf - {{selection}} | zstd -T0 -3 -o {{out:Archive.tar.zst}}",
+   "needs": "some",
+   "tool": "zstd",
+   "explain": [
+    "COPYFILE_DISABLE=1 — don't add macOS's extra ._ files",
+    "tar -cf - — bundle the items into one stream",
+    "zstd -T0 -3 — compress it using every CPU core, at the balanced level 3",
+    "-o {{out:Archive.tar.zst}} — the new file; never overwrites"
+   ],
+   "baseLabel": "Balanced (level 3)",
+   "variants": [
+    {
+     "id": "fast",
+     "title": "Fastest (level 1)",
+     "description": "Quickest, with a little less compression.",
+     "command": "COPYFILE_DISABLE=1 tar -cf - {{selection}} | zstd -T0 -1 -o {{out:Archive.tar.zst}}",
+     "explain": [
+      "zstd -T0 -1 — the fastest level, using every CPU core"
+     ]
+    },
+    {
+     "id": "high",
+     "title": "High (level 19)",
+     "description": "Much smaller than the default and still opens quickly; slow to make.",
+     "command": "COPYFILE_DISABLE=1 tar -cf - {{selection}} | zstd -T0 -19 -o {{out:Archive.tar.zst}}",
+     "explain": [
+      "zstd -T0 -19 — high compression, using every CPU core"
+     ]
+    },
+    {
+     "id": "max",
+     "title": "Maximum (level 22)",
+     "description": "The smallest zstd can make. Slow, and needs a lot of memory; opening needs more memory too.",
+     "command": "COPYFILE_DISABLE=1 tar -cf - {{selection}} | zstd -T0 --ultra -22 --long=27 -o {{out:Archive.tar.zst}}",
+     "confirm": true,
+     "explain": [
+      "--ultra -22 — the highest compression level",
+      "--long=27 — look for repeats across a 128 MB window, which shrinks big archives further",
+      "-T0 — use every CPU core",
+      "Asks first because it can take a long time and a lot of memory"
+     ]
+    }
+   ]
+  },
+  {
    "id": "untar",
    "title": "Extract tar",
    "group": "Archive",
@@ -121,6 +170,24 @@
    "each": true,
    "explain": [
     "tar -xf — extract the archive's files into this folder"
+   ]
+  },
+  {
+   "id": "untar-zst",
+   "title": "Extract tar.zst",
+   "group": "Archive",
+   "description": "Unpack a zstd-compressed tar archive here.",
+   "command": "zstd -dc --long=31 {{file}} | tar -xf -",
+   "extensions": [
+    "zst",
+    "tzst"
+   ],
+   "each": true,
+   "tool": "zstd",
+   "explain": [
+    "zstd -dc — decompress to a stream",
+    "--long=31 — allows archives made with the long-range setting",
+    "tar -xf - — unpack the stream into this folder"
    ]
   },
   {
@@ -287,8 +354,8 @@
    "id": "jpeg",
    "title": "Convert to JPEG",
    "group": "Convert",
-   "description": "Make JPEG copies of the selected images.",
-   "command": "sips -s format jpeg {{file}} --out {{out:<stem>.jpg}}",
+   "description": "Make JPEG copies of the selected images. Set the quality: 100 is best, lower makes smaller files.",
+   "command": "sips -s format jpeg -s formatOptions {{ask:Quality (1-100)=85}} {{file}} --out {{out:<stem>.jpg}}",
    "each": true,
    "extensions": [
     "png",
@@ -301,14 +368,45 @@
    "tool": "sips",
    "explain": [
     "sips -s format jpeg — save as JPEG",
+    "-s formatOptions — JPEG quality: 100 is best, 85 is a good balance, 60 is small",
     "--out — the new file; the original stays"
+   ],
+   "baseLabel": "Choose quality",
+   "variants": [
+    {
+     "id": "web",
+     "title": "Web (quality 75)",
+     "description": "Smaller files that still look fine on screen.",
+     "command": "sips -s format jpeg -s formatOptions 75 {{file}} --out {{out:<stem>.jpg}}",
+     "explain": [
+      "-s formatOptions 75 — a good size for web pages and email"
+     ]
+    },
+    {
+     "id": "best",
+     "title": "Maximum quality (100)",
+     "description": "Least compression; the files are larger.",
+     "command": "sips -s format jpeg -s formatOptions 100 {{file}} --out {{out:<stem>.jpg}}",
+     "explain": [
+      "-s formatOptions 100 — the highest JPEG quality"
+     ]
+    },
+    {
+     "id": "tiny",
+     "title": "Tiny (quality 40)",
+     "description": "Very small files with visible loss, for previews.",
+     "command": "sips -s format jpeg -s formatOptions 40 {{file}} --out {{out:<stem>.jpg}}",
+     "explain": [
+      "-s formatOptions 40 — strong compression"
+     ]
+    }
    ]
   },
   {
    "id": "resize",
    "title": "Resize image",
    "group": "Convert",
-   "description": "Make a smaller copy whose longest side is a number of pixels.",
+   "description": "Make a smaller copy of an image. Pick a variant to fit a width or height, crop to an exact size, or scale by a percentage.",
    "command": "sips -Z {{ask:Longest side (pixels)=1600}} {{file}} --out {{out:<stem> small.<ext>}}",
    "each": true,
    "extensions": [
@@ -322,8 +420,83 @@
    ],
    "tool": "sips",
    "explain": [
-    "sips -Z — shrink so the longest side fits",
+    "sips -Z — shrink so the longest side is this many pixels; the shape is kept",
     "--out — the new file; the original stays"
+   ],
+   "baseLabel": "Longest side",
+   "variants": [
+    {
+     "id": "width",
+     "title": "Fit to width",
+     "description": "Set the width in pixels; the height follows so nothing is squashed.",
+     "command": "sips --resampleWidth {{ask:Width (pixels)=1200}} {{file}} --out {{out:<stem> w.<ext>}}",
+     "explain": [
+      "--resampleWidth — make the picture this many pixels wide",
+      "the height follows to keep the shape"
+     ]
+    },
+    {
+     "id": "height",
+     "title": "Fit to height",
+     "description": "Set the height in pixels; the width follows so nothing is squashed.",
+     "command": "sips --resampleHeight {{ask:Height (pixels)=800}} {{file}} --out {{out:<stem> h.<ext>}}",
+     "explain": [
+      "--resampleHeight — make the picture this many pixels tall",
+      "the width follows to keep the shape"
+     ]
+    },
+    {
+     "id": "crop",
+     "title": "Exact size, cropped",
+     "description": "Fill an exact width and height, cutting off the overflow from the centre. Nothing is stretched.",
+     "command": "W={{ask:Width (pixels)=1200}}; H={{ask:Height (pixels)=800}}; O={{out:<stem> cropped.<ext>}}; cp {{file}} \"$O\" && set -- $(sips -g pixelWidth -g pixelHeight \"$O\" | awk '/pixel/{print $2}') && if [ $(( $1 * H )) -gt $(( $2 * W )) ]; then sips --resampleHeight $H \"$O\" >/dev/null; else sips --resampleWidth $W \"$O\" >/dev/null; fi && sips --cropToHeightWidth $H $W \"$O\"",
+     "explain": [
+      "The picture is first scaled until it covers the whole box",
+      "Then --cropToHeightWidth trims the extra from the centre",
+      "Works on a copy, so the original is never touched"
+     ]
+    },
+    {
+     "id": "half",
+     "title": "50% smaller",
+     "description": "Half the width and half the height.",
+     "command": "w=$(sips -g pixelWidth {{file}} | awk '/pixelWidth/{print $2}'); sips --resampleWidth $(( w / 2 )) {{file}} --out {{out:<stem> half.<ext>}}",
+     "explain": [
+      "Reads the current width, then makes the copy half as wide",
+      "The height follows, so it is half the size both ways"
+     ]
+    },
+    {
+     "id": "threequarters",
+     "title": "25% smaller",
+     "description": "Three quarters of the width and height.",
+     "command": "w=$(sips -g pixelWidth {{file}} | awk '/pixelWidth/{print $2}'); sips --resampleWidth $(( w * 3 / 4 )) {{file}} --out {{out:<stem> 75pc.<ext>}}",
+     "explain": [
+      "Reads the current width, then makes the copy three quarters as wide",
+      "The height follows to keep the shape"
+     ]
+    },
+    {
+     "id": "percent",
+     "title": "Custom percent",
+     "description": "Scale to any percentage of the original size.",
+     "command": "w=$(sips -g pixelWidth {{file}} | awk '/pixelWidth/{print $2}'); p={{ask:Percent of original=50}}; sips --resampleWidth $(( w * p / 100 )) {{file}} --out {{out:<stem> scaled.<ext>}}",
+     "explain": [
+      "Reads the current width, then scales it by the percentage you give",
+      "50 means half the size, 200 means twice"
+     ]
+    },
+    {
+     "id": "jpeg",
+     "title": "Resize and save as JPEG",
+     "description": "Shrink to a longest side and save as a JPEG with the quality you choose.",
+     "command": "sips -Z {{ask:Longest side (pixels)=1600}} -s format jpeg -s formatOptions {{ask:Quality (1-100)=80}} {{file}} --out {{out:<stem> small.jpg}}",
+     "explain": [
+      "-Z — shrink so the longest side is this many pixels",
+      "-s format jpeg — save as JPEG",
+      "-s formatOptions — JPEG quality: 100 is best, lower makes smaller files"
+     ]
+    }
    ]
   },
   {

@@ -114,7 +114,7 @@ struct RecentPane: View {
 
     @ViewBuilder private func row(_ r: RecentFolder) -> some View {
         let line = HStack(spacing: 4) {
-            Text(label(r.path)).lineLimit(1)
+            Text(label(r.path)).font(.callout).lineLimit(1)
             Spacer(minLength: 0)
             Button { remove(r.path) } label: { Image(systemName: "xmark") }
                 .buttonStyle(.borderless).foregroundStyle(.secondary).help("Remove from Recent Locations")

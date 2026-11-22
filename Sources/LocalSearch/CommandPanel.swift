@@ -14,7 +14,8 @@ struct CommandPanel: View {
     @State private var edited = false
     @State private var showAll = false
     @State private var group: String?
-    @State private var showExplain = false
+    /// The lower area shows what the picked command does until it runs, then the output; the button flips between them.
+    @State private var showExplain = true
     @State private var confirming = false
 
     private var ctx: ActionContext { model.actionContext }
@@ -42,7 +43,6 @@ struct CommandPanel: View {
             badges(rows)
             Divider()
             editor
-            if showExplain, let a = active, let lines = a.explain, !lines.isEmpty { explain(lines) }
             Divider()
             output
         }
@@ -51,7 +51,7 @@ struct CommandPanel: View {
         .onChange(of: model.selection) { _, _ in refreshIfUnedited() }
         .onChange(of: model.current.path) { _, _ in refreshIfUnedited() }
         .confirmationDialog("Run this command?", isPresented: $confirming) {
-            Button("Run") { model.runCommand(command) }
+            Button("Run") { showExplain = false; model.runCommand(command) }
             Button("Cancel", role: .cancel) {}
         } message: { Text(command) }
     }
@@ -154,8 +154,8 @@ struct CommandPanel: View {
                         Button("Run") { run() }.shortcut("run")
                             .disabled(command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    if let a = active, a.explain?.isEmpty == false {
-                        Button(showExplain ? "Hide" : "What this does") { showExplain.toggle() }.buttonStyle(.link).font(.caption)
+                    if model.commandRun != nil, active != nil {
+                        Button(showExplain ? "Show output" : "What this does") { showExplain.toggle() }.buttonStyle(.link).font(.caption)
                     }
                 }
             }
@@ -163,18 +163,26 @@ struct CommandPanel: View {
         .padding(.horizontal, 10).padding(.vertical, 6)
     }
 
-    private func explain(_ lines: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(lines, id: \.self) { Text("• " + $0).font(.caption).foregroundStyle(.secondary) }
+    private func explain(_ a: Action) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(a.description).font(.callout)
+                if let lines = a.explain, !lines.isEmpty {
+                    Text("What this does").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 4)
+                    ForEach(lines, id: \.self) { Text("• " + $0).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
         }
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.bottom, 6)
     }
 
     @ViewBuilder private var output: some View {
-        if let run = model.commandRun {
+        if let a = active, showExplain || model.commandRun == nil {
+            explain(a)
+        } else if let run = model.commandRun {
             OutputView(run: run, clickable: active?.results == true)
         } else {
-            Text("Nothing runs until you press Run (⌘↩).").font(.caption).foregroundStyle(.secondary)
+            Text("Pick an action to see what it does.").font(.caption).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -182,20 +190,20 @@ struct CommandPanel: View {
     // MARK: Actions
 
     private func pick(_ a: Action) {
-        picked = a; asks = [:]; edited = false
+        picked = a; asks = [:]; edited = false; showExplain = true
         let r = remembered(a.id)
         variantID = (r != nil && a.variants?.contains { $0.id == r } == true) ? r : nil
         rerender()
     }
     private func setVariant(_ id: String?) {
-        variantID = id; asks = [:]; edited = false
+        variantID = id; asks = [:]; edited = false; showExplain = true
         if let p = picked { remember(p.id, variant: id) }
         rerender()
     }
     private func rerender() { if let a = active { command = Actions.render(a, in: ctx, asks: asks) } }
     private func refreshIfUnedited() { if !edited { rerender() } }
     private func run() {
-        if active?.confirm == true { confirming = true } else { model.runCommand(command) }
+        if active?.confirm == true { confirming = true } else { showExplain = false; model.runCommand(command) }
     }
 }
 

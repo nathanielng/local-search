@@ -1213,3 +1213,113 @@ private func tempDir() throws -> String {
         #expect(Shortcuts.def("info").display == "⌘I" && Shortcuts.def("sidebar").display == "⌃⌘S")
     }
 }
+
+import ImageIO
+import UniformTypeIdentifiers
+
+@Suite(.serialized) struct ImageAndZstdActionTests {
+    private func bundled() throws -> ActionFile {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Resources/actions.json").standardized
+        return try #require(Actions.parse(try Data(contentsOf: url)).file)
+    }
+    private func sh(_ cmd: String, in dir: String) throws -> (String, Int32) {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/zsh"); p.arguments = ["-l", "-c", cmd]
+        p.currentDirectoryURL = URL(fileURLWithPath: dir)
+        let out = Pipe(); p.standardOutput = out; p.standardError = out
+        try p.run(); p.waitUntilExit()
+        return (String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self), p.terminationStatus)
+    }
+    /// A 400 x 200 picture with noise, so JPEG quality changes the size.
+    private func makeImage(in dir: String, name: String = "pic.png") throws {
+        let w = 400, h = 200
+        var px = [UInt8](repeating: 255, count: w * h * 4)
+        var seed: UInt32 = 12345
+        for i in 0..<(w * h) {
+            seed = seed &* 1664525 &+ 1013904223
+            px[i * 4] = UInt8(truncatingIfNeeded: i % w); px[i * 4 + 1] = UInt8(truncatingIfNeeded: i / w); px[i * 4 + 2] = UInt8(truncatingIfNeeded: seed >> 24)
+        }
+        let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let img = ctx.makeImage()!
+        let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: dir + "/" + name) as CFURL, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, img, nil); #expect(CGImageDestinationFinalize(dest))
+    }
+    private func size(_ path: String, in dir: String) throws -> String {
+        let (o, _) = try sh("sips -g pixelWidth -g pixelHeight \(Actions.shellQuote(path)) | awk '/pixelWidth/{w=$2} /pixelHeight/{h=$2} END{print w\"x\"h}'", in: dir)
+        return o.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    private func render(_ id: String, _ variant: String?, dir: String, selection: [String], asks: [String: String] = [:]) throws -> String {
+        let a = try #require(try bundled().actions.first { $0.id == id })
+        return Actions.render(Actions.resolved(a, variant: variant), in: ActionContext(folder: dir, selection: selection), asks: asks)
+    }
+
+    @Test func everyResizeVariantGivesTheRightSize() throws {
+        let dir = NSTemporaryDirectory() + "img-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try makeImage(in: dir)
+        let sel = [dir + "/pic.png"]
+        let cases: [(String?, [String: String], String, String)] = [
+            (nil, ["Longest side (pixels)": "100"], "pic small.png", "100x50"),
+            ("width", ["Width (pixels)": "100"], "pic w.png", "100x50"),
+            ("height", ["Height (pixels)": "100"], "pic h.png", "200x100"),
+            ("crop", ["Width (pixels)": "120", "Height (pixels)": "120"], "pic cropped.png", "120x120"),
+            ("crop", ["Width (pixels)": "300", "Height (pixels)": "50"], "pic cropped.png", "300x50"),
+            ("half", [:], "pic half.png", "200x100"),
+            ("threequarters", [:], "pic 75pc.png", "300x150"),
+            ("percent", ["Percent of original": "10"], "pic scaled.png", "40x20"),
+        ]
+        for (v, asks, out, want) in cases {
+            try? FileManager.default.removeItem(atPath: dir + "/" + out)
+            let cmd = try render("resize", v, dir: dir, selection: sel, asks: asks)
+            let (log, code) = try sh(cmd, in: dir)
+            #expect(code == 0, "\(v ?? "base"): \(log)")
+            let got = try size(out, in: dir)
+            #expect(got == want, "\(v ?? "base") gave \(got), wanted \(want)")
+            #expect(try size("pic.png", in: dir) == "400x200")        // original untouched
+        }
+    }
+    @Test func jpegQualityChangesFileSize() throws {
+        let dir = NSTemporaryDirectory() + "jq-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try makeImage(in: dir)
+        let sel = [dir + "/pic.png"]
+        func bytes(_ v: String?, _ asks: [String: String]) throws -> Int {
+            try? FileManager.default.removeItem(atPath: dir + "/pic.jpg")
+            let (log, code) = try sh(try render("jpeg", v, dir: dir, selection: sel, asks: asks), in: dir)
+            #expect(code == 0, "\(log)")
+            let d = try Data(contentsOf: URL(fileURLWithPath: dir + "/pic.jpg"))
+            #expect(d.prefix(2) == Data([0xFF, 0xD8]))
+            return d.count
+        }
+        let low = try bytes(nil, ["Quality (1-100)": "20"]), high = try bytes(nil, ["Quality (1-100)": "95"])
+        #expect(low < high)
+        let tiny = try bytes("tiny", [:]), best = try bytes("best", [:])
+        #expect(tiny < best)
+        // Resize and save as JPEG
+        try? FileManager.default.removeItem(atPath: dir + "/pic small.jpg")
+        let (_, c) = try sh(try render("resize", "jpeg", dir: dir, selection: sel, asks: ["Longest side (pixels)": "100", "Quality (1-100)": "50"]), in: dir)
+        let jsize = try size("pic small.jpg", in: dir)
+        #expect(c == 0 && jsize == "100x50")
+    }
+    @Test func zstdArchiveRoundTripAndMaxVariantAsksFirst() throws {
+        guard (try sh("command -v zstd", in: "/tmp")).1 == 0 else { return }       // only where zstd is installed
+        let dir = NSTemporaryDirectory() + "zs-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir + "/src", withIntermediateDirectories: true)
+        try String(repeating: "hello zstd\n", count: 5000).write(toFile: dir + "/src/a.txt", atomically: true, encoding: .utf8)
+        let a = try #require(try bundled().actions.first { $0.id == "tar-zst" })
+        #expect(Actions.resolved(a, variant: "max").confirm == true && a.confirm != true)
+        var sizes: [String: Int] = [:]
+        for v in [nil, "fast", "high", "max"] as [String?] {
+            try? FileManager.default.removeItem(atPath: dir + "/Archive.tar.zst")
+            let (log, code) = try sh(try render("tar-zst", v, dir: dir, selection: [dir + "/src"]), in: dir)
+            #expect(code == 0, "\(v ?? "base"): \(log)")
+            sizes[v ?? "base"] = try Data(contentsOf: URL(fileURLWithPath: dir + "/Archive.tar.zst")).count
+        }
+        #expect(sizes["max"]! <= sizes["base"]! && sizes["high"]! <= sizes["fast"]!)
+        // Extract it
+        try FileManager.default.removeItem(atPath: dir + "/src")
+        let (log, code) = try sh(try render("untar-zst", nil, dir: dir, selection: [dir + "/Archive.tar.zst"]), in: dir)
+        #expect(code == 0, "\(log)")
+        #expect(try String(contentsOfFile: dir + "/src/a.txt", encoding: .utf8).hasPrefix("hello zstd"))
+    }
+}
