@@ -53,6 +53,8 @@ struct AppCommands: Commands {
             Button("Copy File Text for AI") { model.copyFileText() }.keyboardShortcut("c", modifiers: [.command, .option, .shift])
         }
         CommandMenu("Go") {
+            Button("Quick Find…") { model.showQuickFind = true }.keyboardShortcut("f")
+            Divider()
             Button("Back") { model.goBack() }.keyboardShortcut("[")
             Button("Forward") { model.goForward() }.keyboardShortcut("]")
             Button("Enclosing Folder") { model.goUp() }.keyboardShortcut(.upArrow)

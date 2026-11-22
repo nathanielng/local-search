@@ -20,6 +20,8 @@ final class AppModel {
     var renamingPath: String?
     var copyJob: CopyJob?
     var undoStack: [UndoRecord] = []
+    var showQuickFind = false
+    @ObservationIgnored var pendingSelection: String?
     var redoStack: [UndoRecord] = []
     var tabDropMark: (tab: UUID, after: Bool, files: Bool)?
     var dropHighlight: (id: UUID, zone: DropZone)?
@@ -113,7 +115,11 @@ final class AppModel {
             let changed = tabs[j].path != path
             tabs[j].commit(to: path, source: source)
             loadedTabs.insert(id)
-            if id == selectedTabID { entries = list; selection = [] }
+            if id == selectedTabID {
+                entries = list; selection = []
+                if let sel = pendingSelection { setSelection([sel]) } // e.g. a Quick Find hit
+            }
+            pendingSelection = nil
             if changed && source != .refresh { try? store?.logVisit(tabID: id, path: path, source: source) }
             warning = nil
             persist()
@@ -294,6 +300,20 @@ final class AppModel {
     func removeFavorite(_ path: String) {
         try? store?.removeFavorite(path: path)
         sidebarVersion += 1
+    }
+
+    /// A Quick Find hit: folders open in the tab (⌘: new tab); files are revealed in their folder
+    /// (⌘: opened in their app).
+    func openQuickFindResult(_ path: String, isDirectory: Bool, newTab: Bool) {
+        if isDirectory {
+            if newTab { self.newTab(path: path) } else { navigate(path, .quickFind) }
+        } else if newTab {
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+            try? store?.db.exec("INSERT INTO file_opens(path,opened_at,app) VALUES(?,?,NULL)", [.text(path), .text(iso8601Now())])
+        } else {
+            pendingSelection = path
+            navigate((path as NSString).deletingLastPathComponent, .quickFind)
+        }
     }
 
     func openFolder(_ path: String, newTab: Bool) {

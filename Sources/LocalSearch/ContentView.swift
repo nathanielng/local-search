@@ -5,6 +5,10 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        content.overlay { if model.showQuickFind { QuickFindView() } }
+    }
+
+    private var content: some View {
         HSplitView {
             SidebarView().frame(minWidth: 160, idealWidth: 200, maxWidth: 320)
             VStack(spacing: 0) {

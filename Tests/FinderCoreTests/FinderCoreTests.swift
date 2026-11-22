@@ -333,3 +333,53 @@ private func tempDir() throws -> String {
         #expect(r[0].result == "failed" && r[0].message?.contains("already exists") == true)
     }
 }
+
+@Suite struct QuickFindTests {
+    private func files(_ names: [String]) throws -> (String, [String]) {
+        let d = try tempDir()
+        for n in names {
+            let p = d + "/" + n
+            try FileManager.default.createDirectory(atPath: (p as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: p, contents: Data())
+        }
+        return (d, names.map { d + "/" + $0 })
+    }
+
+    @Test func nameMatchBeatsPathMatchAndAllWordsRequired() throws {
+        let (d, p) = try files(["budget.xlsx", "old/budget notes.txt", "reports/budget/readme.md", "other.txt"])
+        let r = QuickFind.rank(paths: p, query: "budget", currentFolder: nil, frecency: [:])
+        #expect(r.count == 3 && r[0].name == "budget.xlsx" && r.last?.name == "readme.md")
+        #expect(QuickFind.rank(paths: p, query: "budget notes", currentFolder: nil, frecency: [:]).map(\.name) == ["budget notes.txt"])
+        #expect(QuickFind.rank(paths: p, query: "budget zzz", currentFolder: nil, frecency: [:]).isEmpty)
+        #expect(QuickFind.rank(paths: p, query: "  ", currentFolder: nil, frecency: [:]).isEmpty)
+        _ = d
+    }
+    @Test func locationFrecencyAndNoise() throws {
+        let (d, p) = try files(["a/plan.md", "b/plan.md", "Library/Caches/plan.md"])
+        let inB = QuickFind.rank(paths: p, query: "plan", currentFolder: d + "/b", frecency: [:])
+        #expect(inB[0].path == d + "/b/plan.md")
+        let used = QuickFind.rank(paths: p, query: "plan", currentFolder: nil, frecency: [d + "/a/plan.md": 8])
+        #expect(used[0].path == d + "/a/plan.md")
+        #expect(used.last?.path.contains("/Library/Caches/") == true) // noise sinks to the bottom
+    }
+    @Test func frecencyDecaysWithAge() throws {
+        let s = try tempStore()
+        try s.logVisit(tabID: UUID(), path: "/recent", source: .click)
+        try s.db.exec("INSERT INTO nav_history(tab_id,path,source,visited_at) VALUES('t','/old','click',?)",
+                      [.text(iso8601(Date().addingTimeInterval(-60 * 86400)))])
+        try s.db.exec("INSERT INTO file_opens(path,opened_at) VALUES('/file',?)", [.text(iso8601Now())])
+        let f = try s.frecencyScores()
+        #expect(f["/recent"]! > 0.9 && f["/old"]! < 0.05 && f["/file"]! > 1.9)
+    }
+    @Test func mdfindExpressionAndLineCap() {
+        #expect(MDFind.expression(for: "foo bar") == "kMDItemFSName == \"*foo*\"cd && kMDItemFSName == \"*bar*\"cd")
+        #expect(MDFind.expression(for: "a\"b")?.contains("a\\\"b") == true)
+        #expect(MDFind.expression(for: "   ") == nil)
+        let big = Data((1...1000).map { "/p\($0)\n" }.joined().utf8)
+        #expect(MDFind.lines(from: big).count == 400)
+    }
+    @Test func spotlightSearchRunsAndRespectsLimit() async {
+        let r = await MDFind.search(query: "Package", onlyIn: "/Applications", limit: 5)
+        #expect(r.count <= 5)
+    }
+}

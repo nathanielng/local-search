@@ -2,7 +2,7 @@
 
 Scratch setup: `mkdir -p ~/Desktop/ls-test/{a,b} && cd ~/Desktop/ls-test && echo one > a/f.txt && echo two > b/f.txt && echo hi > note.md`
 
-Unit tests: `scripts/test.sh` (33 tests). Everything below is checked by hand in the running app by the
+Unit tests: `scripts/test.sh` (38 tests). Everything below is checked by hand in the running app by the
 owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 
 ## Verified
@@ -27,12 +27,14 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 | ⌥⌘V Move Item Here | Moves the copied files into the current folder |
 | History window (⌘Y) | Tabs, search, export, delete and Clear work |
 | Reorder sidebar rows | Dragging Favorites and Special Folders rows reorders them (blue bar shows where); the order survives relaunch; plain clicks on rows still navigate; folder drops on favorites still work |
+| Quick Find (⌘F) | Finds folders and files (`memo`, `memo.md`), instant local matches then Spotlight, ↑/↓ choose, Esc closes |
 | Tab reorder | Dragging a tab to the front and, via the end-of-row target, to the very end; a bar shows where it lands |
 | Redo (⇧⌘Z) | Move: ⌘Z then ⇧⌘Z re-applies it; copy: ⌘Z trashes the copy and ⇧⌘Z restores it; rename; menu shows "Redo <action>" |
 | History symbols | 📋 copy, ➡️ move, 🗑️ trash, ✏️ rename, ➕ create shown in the History window |
 
 ## Not yet tested by hand
 
+- Quick Find: the matched part of a file name is shown in bold accent colour (new), and the "No matches" hint about macOS privacy; ⌘↩ (new tab / open file); revealing a file selects it in its folder
 - The notes special folder now points at `…/Documents/REMOVED` (check the row opens the vault)
 - Dropping a file onto a tab (moves into the tab's folder)
 - Dragging into Slack specifically; a browser upload field
@@ -52,3 +54,4 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 4. A stale blue drop line stayed after releasing, because SwiftUI can skip the "exited" callback. The highlight is now shared and cleared when the button is up.
 5. A failed rename was easy to miss; it now shows an alert with the reason.
 6. A rebuilt app has a new ad-hoc signature, so macOS may block folder access again. The app now says so when a folder can't be read.
+7. Quick Find "didn't find memo.md" right after a rebuild: macOS had withdrawn the app's Desktop permission, and Spotlight hides files in protected folders from an app without it (TCC logged the new grant at the moment it was answered). Not a search bug. A stable signing identity would stop this.
