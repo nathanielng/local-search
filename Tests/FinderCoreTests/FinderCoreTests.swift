@@ -765,3 +765,103 @@ private func tempDir() throws -> String {
         #expect(try s.recentFiles().isEmpty)
     }
 }
+
+@Suite struct SettingsFileTests {
+    private func file(_ text: String?) -> URL {
+        let u = URL(fileURLWithPath: NSTemporaryDirectory() + "sf-\(UUID().uuidString).json")
+        if let text { try? text.write(to: u, atomically: true, encoding: .utf8) }
+        return u
+    }
+    @Test func malformedDetection() {
+        #expect(!SettingsFile.isMalformed(file(nil)))            // missing is fine
+        #expect(!SettingsFile.isMalformed(file("")))             // empty is fine
+        #expect(!SettingsFile.isMalformed(file("  \n")))
+        #expect(!SettingsFile.isMalformed(file(#"{"projects":[]}"#)))
+        #expect(SettingsFile.isMalformed(file(#"{"projects":["#)))
+        #expect(SettingsFile.isMalformed(file("[1,2]")))         // valid JSON, but not an object
+        #expect(SettingsFile.isMalformed(file("nope")))
+    }
+}
+
+@Suite struct ActionsTests {
+    private func act(_ cmd: String, _ f: (inout Action) -> Void = { _ in }) -> Action {
+        var a = Action(id: "t", title: "T", group: "G", description: "d", command: cmd)
+        f(&a); return a
+    }
+    private func ctx(_ sel: [String], folder: String = "/w", exists: @escaping @Sendable (String) -> Bool = { _ in false }) -> ActionContext {
+        ActionContext(folder: folder, selection: sel, home: "/home/u", isDirectory: { $0.hasSuffix("/dir") }, exists: exists)
+    }
+
+    @Test func quoting() {
+        #expect(Actions.shellQuote("a.txt") == "a.txt")
+        #expect(Actions.shellQuote("my file.txt") == "'my file.txt'")
+        #expect(Actions.shellQuote("it's") == "'it'\\''s'")
+        #expect(Actions.shellQuote("$(rm -rf ~)") == "'$(rm -rf ~)'")
+        #expect(Actions.shellQuote("") == "''")
+    }
+    @Test func selectionAndFileTokens() {
+        let a = act("zip {{selection}}")
+        #expect(Actions.render(a, in: ctx(["/w/a b.txt", "/w/c.txt"])) == "zip 'a b.txt' c.txt")
+        let f = act("cp {{file}} {{stem}}.{{ext}}.bak")
+        #expect(Actions.render(f, in: ctx(["/w/r.png"])) == "cp r.png r.png.bak")
+        #expect(Actions.render(act("cd {{folder}}"), in: ctx([], folder: "/my dir")) == "cd '/my dir'")
+    }
+    @Test func eachRendersOneLinePerItemWithDistinctOutputs() {
+        let a = act("conv {{file}} {{out:<stem>.png}}") { $0.each = true }
+        let out = Actions.render(a, in: ctx(["/w/a.jpg", "/w/a.gif"]))
+        #expect(out == "conv a.jpg a.png\nconv a.gif 'a 2.png'")
+    }
+    @Test func outNeverOverwrites() {
+        #expect(Actions.uniqueName("A.zip", in: "/w", exists: { _ in false }) == "A.zip")
+        #expect(Actions.uniqueName("A.zip", in: "/w", exists: { $0 == "/w/A.zip" }) == "A 2.zip")
+        #expect(Actions.uniqueName("A.zip", in: "/w", exists: { $0 == "/w/A.zip" || $0 == "/w/A 2.zip" }) == "A 3.zip")
+        #expect(Actions.uniqueName("dir", in: "/w", exists: { $0 == "/w/dir" }) == "dir 2")
+    }
+    @Test func askValuesAreQuotedAndDefaulted() {
+        let a = act("grep {{ask:Text=TODO}} .")
+        #expect(Actions.asks(in: a.command).map(\.label) == ["Text"])
+        #expect(Actions.asks(in: a.command).first?.def == "TODO")
+        #expect(Actions.render(a, in: ctx([])) == "grep TODO .")
+        #expect(Actions.render(a, in: ctx([]), asks: ["Text": "a b; rm x"]) == "grep 'a b; rm x' .")
+    }
+    @Test func availabilityRules() {
+        #expect(Actions.availability(of: act("zip {{selection}}"), in: ctx([])) == .unavailable("Select one or more items"))
+        #expect(Actions.availability(of: act("zip {{selection}}"), in: ctx(["/w/a"])).isAvailable)
+        #expect(Actions.availability(of: act("x {{file}}"), in: ctx(["/w/a", "/w/b"])) == .unavailable("Select exactly one item"))
+        #expect(Actions.availability(of: act("x {{file}}") { $0.each = true }, in: ctx(["/w/a", "/w/b"])).isAvailable)
+        #expect(Actions.availability(of: act("ls"), in: ctx([])).isAvailable)
+        let img = act("x {{file}}") { $0.extensions = ["png"] }
+        #expect(Actions.availability(of: img, in: ctx(["/w/a.PNG"])).isAvailable)
+        #expect(!Actions.availability(of: img, in: ctx(["/w/a.txt"])).isAvailable)
+        #expect(!Actions.availability(of: img, in: ctx(["/w/x/dir"])).isAvailable)
+        let home = act("find .") { $0.notInHome = true }
+        #expect(!Actions.availability(of: home, in: ctx([], folder: "/home/u")).isAvailable)
+        #expect(Actions.availability(of: home, in: ctx([], folder: "/home/u/code")).isAvailable)
+        let cloud = act("aws s3 ls") { $0.requires = ["s3"] }
+        #expect(!Actions.availability(of: cloud, in: ctx([])).isAvailable)
+        let tool = act("ffmpeg") { $0.tool = "ffmpeg" }
+        let none = ActionContext(folder: "/w", selection: [], hasTool: { _ in false })
+        #expect(Actions.availability(of: tool, in: none) == .unavailable("ffmpeg isn't installed"))
+    }
+    @Test func bundledDefaultsParseAndAreUnique() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Resources/actions.json").standardized
+        let f = try #require(Actions.parse(try Data(contentsOf: url)).file)
+        #expect(f.actions.count >= 20)
+        #expect(Set(f.actions.map(\.id)).count == f.actions.count)
+        for a in f.actions { #expect(!a.description.isEmpty && !a.command.isEmpty, "\(a.id)") }
+    }
+    @Test func installAndUpgrade() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory() + "act-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let b = dir.appendingPathComponent("b.json"), t = dir.appendingPathComponent("sub/actions.json")
+        func write(_ v: Int, to u: URL) throws { try Data(#"{"version":\#(v),"actions":[]}"#.utf8).write(to: u) }
+        try write(2, to: b)
+        #expect(Actions.installDefaults(bundled: b, to: t))                 // created
+        #expect(!Actions.installDefaults(bundled: b, to: t))                // same version: untouched
+        try write(3, to: b)
+        #expect(Actions.installDefaults(bundled: b, to: t))                 // upgraded
+        #expect(FileManager.default.fileExists(atPath: t.appendingPathExtension("bak").path))
+        try Data("not json".utf8).write(to: t)
+        #expect(Actions.installDefaults(bundled: b, to: t))                 // unreadable: replaced, old kept
+    }
+}

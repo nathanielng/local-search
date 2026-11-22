@@ -13,6 +13,9 @@ final class AppModel {
     var selection: Set<String> = []
     var showHidden = false
     var ignoredFolders: [String] = []
+    var actions: [Action] = []
+    var actionsError: String?
+    var commandRun: CommandRun?
     var showAddressField = false
     var warning: String?
     var textSize: Double = 13 { didSet { store?.setKV("text_size", String(textSize)) } }
@@ -48,6 +51,9 @@ final class AppModel {
     var dropHighlight: (id: UUID, zone: DropZone)?
     @ObservationIgnored private var highlightWatch: Task<Void, Never>?
     @ObservationIgnored let watcher = FolderWatcher()
+    @ObservationIgnored let settingsWatcher = FolderWatcher()      // the folder: file created, replaced or deleted
+    @ObservationIgnored let settingsFileWatcher = FolderWatcher()  // the file: edited in place
+    @ObservationIgnored var settingsStamp: Date?
     var undoLabel: String? { undoStack.last?.label }
     var redoLabel: String? { redoStack.last?.label }
     var retentionDays = 0 { didSet { store?.setKV("retention_days", String(retentionDays)) } }
@@ -68,6 +74,8 @@ final class AppModel {
         try? s?.purgeHistory(olderThanDays: retentionDays)
         networkLocations = NetworkLocation.load()
         watchVolumes()
+        watchSettings()
+        loadActions()
         if s == nil { warning = "History database could not be opened; nothing will be saved." }
         // Only the visible tab loads at launch.
         Task { @MainActor in self.ensureLoaded(self.selectedTabID) }

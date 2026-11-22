@@ -8,8 +8,9 @@ struct SettingsView: View {
         TabView {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
             HistorySettings().tabItem { Label("History", systemImage: "clock") }
+            LocationsSettings().tabItem { Label("Locations", systemImage: "folder.badge.gearshape") }
         }
-        .frame(width: 480, height: 380)
+        .frame(width: 520, height: 520)
     }
 }
 
@@ -98,5 +99,72 @@ extension AppModel {
         store?.setIgnoredFolders(ignoredFolders.filter { $0 != path })
         ignoredFolders = store?.ignoredFolders() ?? []
         historyVersion += 1
+    }
+}
+
+/// Projects, Web Locations and OneDrive folders, managed here instead of by editing settings.json.
+struct LocationsSettings: View {
+    @Environment(AppModel.self) private var model
+    @State private var project: String?
+    @State private var web: String?
+    @State private var cloud: String?
+    @State private var filter = ""
+
+    private var webShown: [WebLocation] { WebLocations.search(model.webLocations, filter) }
+
+    var body: some View {
+        Form {
+            Section("Projects") {
+                List(model.projects, id: \.path, selection: $project) { p in
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(p.title)
+                        Text(p.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }
+                }.frame(height: 90)
+                HStack {
+                    Button("Add Folder…") { model.promptAddProject() }
+                    Button("Remove") { if let p = project { model.removeProject(p); project = nil } }.disabled(project == nil)
+                    Button { if let p = project { model.moveProject(p, up: true) } } label: { Image(systemName: "chevron.up") }.disabled(project == nil)
+                    Button { if let p = project { model.moveProject(p, up: false) } } label: { Image(systemName: "chevron.down") }.disabled(project == nil)
+                }
+            }
+            Section("Web Locations (https only)") {
+                TextField("Filter", text: $filter).textFieldStyle(.roundedBorder)
+                List(webShown, id: \.url, selection: $web) { w in
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(w.title)
+                        Text(w.url).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }
+                }.frame(height: 90)
+                HStack {
+                    Button("Add…") { model.promptAddWebLocation() }
+                    Button("Remove") { if let w = model.webLocations.first(where: { $0.url == web }) { model.removeWebLocation(w); web = nil } }.disabled(web == nil)
+                    Text("\(model.webLocations.count) in total").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section("OneDrive") {
+                List(model.cloudFolders, id: \.path, selection: $cloud) { c in
+                    HStack {
+                        Text(c.title)
+                        Spacer()
+                        Text(c.manual ? "added by hand" : "found automatically").font(.caption).foregroundStyle(.secondary)
+                    }
+                }.frame(height: 60)
+                HStack {
+                    Button("Add Folder…") { model.promptAddOneDriveFolder() }
+                    Button("Remove") { if let c = cloud { model.removeCloudFolder(c); cloud = nil } }
+                        .disabled(!(model.cloudFolders.first { $0.path == cloud }?.manual ?? false))
+                }
+            }
+            Section {
+                HStack {
+                    Button("Show settings.json in Finder") { model.revealSettingsFile() }
+                    Button("Reload Now") { model.reloadNetworkLocations() }
+                }
+                Text("Changes made to settings.json by hand are picked up automatically. These lists are stored only on this Mac.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }

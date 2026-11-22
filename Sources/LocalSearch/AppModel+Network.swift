@@ -48,7 +48,15 @@ extension AppModel {
         if NetworkLocation.remove(title: title) { reloadNetworkLocations() }
     }
 
+    static let badSettingsMessage = "settings.json isn't valid JSON, so the last good values are being kept"
+
+    /// Re-read every list in settings.json. A malformed file keeps the last good values and shows a warning.
     func reloadNetworkLocations() {
+        if SettingsFile.isMalformed(AppPaths.settingsURL) {
+            warning = Self.badSettingsMessage
+            return
+        }
+        if warning == Self.badSettingsMessage { warning = nil }
         networkLocations = NetworkLocation.load()
         projects = Projects.load()
         cloudFolders = Cloud.load()

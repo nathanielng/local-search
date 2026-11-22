@@ -9,6 +9,7 @@ struct ContentView: View {
     @AppStorage("showVerticalTabs") private var showVerticalTabs = false
     @AppStorage("showRecent") private var showRecent = false
     @AppStorage("showInfo") private var showInfo = false
+    @AppStorage("showCommands") private var showCommands = false
     @AppStorage("rightPanelWidth") private var rightPanelWidth = 240.0
 
     var body: some View {
@@ -28,6 +29,7 @@ struct ContentView: View {
                 Divider()
                 if showKindBadges { KindBadgeBar(); Divider() }
                 FileListView()
+                if showCommands { Divider(); CommandPanel() }
                 if let job = model.copyJob {
                     HStack {
                         ProgressView(value: Double(job.done), total: Double(max(job.total, 1))).frame(maxWidth: 220)
