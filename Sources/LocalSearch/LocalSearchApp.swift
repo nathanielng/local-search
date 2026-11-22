@@ -11,11 +11,14 @@ struct LocalSearchApp: App {
                 .frame(minWidth: 800, minHeight: 480)
         }
         .commands { AppCommands(model: model) }
+        Window("History", id: "history") { HistoryView().environment(model) }
+        Settings { SettingsView().environment(model) }
     }
 }
 
 struct AppCommands: Commands {
     let model: AppModel
+    @Environment(\.openWindow) private var openWindow
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Tab") { model.newTab() }.keyboardShortcut("t")
@@ -29,6 +32,9 @@ struct AppCommands: Commands {
             Button("Forward") { model.goForward() }.keyboardShortcut("]")
             Button("Enclosing Folder") { model.goUp() }.keyboardShortcut(.upArrow)
             Button("Go to Folder…") { model.showAddressField = true }.keyboardShortcut("g", modifiers: [.command, .shift])
+        }
+        CommandMenu("History") {
+            Button("Show History") { openWindow(id: "history") }.keyboardShortcut("y")
         }
         CommandMenu("View") {
             Button("Show Hidden Files") { model.toggleHidden() }.keyboardShortcut(".", modifiers: [.command, .shift])

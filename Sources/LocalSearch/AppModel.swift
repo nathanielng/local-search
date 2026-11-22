@@ -16,6 +16,8 @@ final class AppModel {
     var warning: String?
     var textSize: Double = 13 { didSet { store?.setKV("text_size", String(textSize)) } }
     var sidebarVersion = 0 // bump to refresh favorites
+    var historyVersion = 0 // bump to refresh the History window
+    var retentionDays = 0 { didSet { store?.setKV("retention_days", String(retentionDays)) } }
 
     init() {
         let s = try? FinderStore()
@@ -28,6 +30,8 @@ final class AppModel {
         selectedTabID = (sel.flatMap { id in tabs.contains { $0.id == id } ? id : nil }) ?? tabs[0].id
         showHidden = s?.kv("show_hidden") == "1"
         textSize = Double(s?.kv("text_size") ?? "") ?? 13
+        retentionDays = Int(s?.kv("retention_days") ?? "") ?? 0
+        try? s?.purgeHistory(olderThanDays: retentionDays)
         if s == nil { warning = "History database could not be opened; nothing will be saved." }
         // Only the visible tab loads at launch.
         Task { @MainActor in self.ensureLoaded(self.selectedTabID) }
@@ -196,7 +200,7 @@ final class AppModel {
         if let i = tabIndex { tabs[i].selection = s.map { ($0 as NSString).lastPathComponent }; persist() }
     }
 
-    func persist() { try? store?.saveTabs(tabs, selected: selectedTabID) }
+    func persist() { try? store?.saveTabs(tabs, selected: selectedTabID); historyVersion += 1 }
 
     func toggleHidden() {
         showHidden.toggle()
@@ -209,6 +213,34 @@ final class AppModel {
         if s.isFavorite(current.path) { try? s.removeFavorite(path: current.path) }
         else if (try? s.addFavorite(path: current.path)) == false { warning = "Favorites is full (20 items)" }
         sidebarVersion += 1
+    }
+
+    // MARK: Drag and drop
+
+    /// Moving is the default; ⌥ copies. Dropping on the file list copies into the current folder.
+    func handleDrop(_ urls: [URL], onto folder: String, mode: FolderDropDelegate.Mode, option: Bool, command: Bool) {
+        var paths = urls.map { $0.standardized.path }
+        guard !paths.isEmpty, let store else { return }
+        // A folder dropped on a sidebar row becomes a shortcut; ⌘ moves it in instead.
+        if mode == .shortcutOrMove && !command && urls.allSatisfy({ $0.hasDirectoryPath }) {
+            for p in paths where (try? store.addFavorite(path: p)) == false { warning = "Favorites is full (20 items)"; break }
+            sidebarVersion += 1
+            return
+        }
+        let kind: FileOpKind = (mode == .copyIntoCurrent || option) ? .copy : .move
+        if mode == .copyIntoCurrent { paths.removeAll { ($0 as NSString).deletingLastPathComponent == folder } }
+        guard !paths.isEmpty else { return }
+        let sources = paths
+        Task {
+            let results = await Task.detached { FileOps.perform(kind, sources: sources, into: folder, store: store) }.value
+            let refused = results.filter { $0.result != "done" }
+            warning = refused.isEmpty ? nil : "\(refused.count) item(s) not \(kind == .move ? "moved" : "copied"): \(refused[0].message ?? refused[0].result)"
+            refresh(); historyVersion += 1
+        }
+    }
+
+    func openFolder(_ path: String, newTab: Bool) {
+        if newTab { self.newTab(path: path) } else { navigate(path, .history) }
     }
 
     // MARK: File operations

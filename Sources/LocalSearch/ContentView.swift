@@ -41,10 +41,7 @@ struct TabBar: View {
                         .contentShape(Rectangle())
                         .onTapGesture { model.selectTab(tab.id) }
                         .draggable(tab.id.uuidString)
-                        .dropDestination(for: String.self) { items, _ in
-                            if let s = items.first, let id = UUID(uuidString: s) { model.moveTab(id, before: tab.id) }
-                            return true
-                        }
+                        .onDrop(of: [.fileURL, .plainText], delegate: TabDropDelegate(model: model, tab: tab) { _ in })
                         .contextMenu {
                             Button("Duplicate Tab") { model.duplicateTab() }
                             Button("Close Tab") { model.closeTab(tab.id) }
@@ -114,6 +111,7 @@ struct SidebarView: View {
                 let exists = FileManager.default.fileExists(atPath: item.1)
                 Button { model.navigate(item.1, source) } label: { Label(item.0, systemImage: item.2) }
                     .buttonStyle(.plain).opacity(exists ? 1 : 0.4)
+                    .folderDropTarget(model, path: item.1, mode: title == "Favorites" ? .shortcutOrMove : .moveInto)
             }
         } header: { Text(title) }
     }
@@ -142,6 +140,8 @@ struct FileListView: View {
             TableColumn("Kind") { e in Text(e.kind).foregroundStyle(.secondary).lineLimit(1) }.width(min: 80, ideal: 120)
         }
         .font(.system(size: model.textSize))
+        .background(AppKitDragFix(selectedPaths: { Array(model.selection) }))
+        .onDrop(of: [.fileURL], delegate: FolderDropDelegate(model: model, path: model.current.path, mode: .copyIntoCurrent) { _ in })
         .contextMenu(forSelectionType: String.self) { ids in
             if !ids.isEmpty { Button("Move to Trash") { model.trash(Array(ids)) } }
             Button("New Folder") { model.newFolder() }
