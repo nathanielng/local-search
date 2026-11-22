@@ -10,6 +10,8 @@ struct SidebarRow: Identifiable {
     var network: NetworkLocation?
     var connected = true
     var ejectable = false
+    var running = false      // Cloud: the OneDrive app is running
+    var manual = false       // Cloud: added by hand, so it can be removed
     var id: String { path }
     /// A configured network location that isn't mounted: clicking connects it.
     var needsConnect: Bool { network != nil && !connected }
@@ -49,6 +51,8 @@ extension AppModel {
     func reloadNetworkLocations() {
         networkLocations = NetworkLocation.load()
         projects = Projects.load()
+        cloudFolders = Cloud.load()
+        webLocations = WebLocations.load()
         sidebarVersion += 1
     }
 
@@ -56,6 +60,12 @@ extension AppModel {
     func watchVolumes() {
         let nc = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.sidebarVersion += 1 }
+            }
+        }
+        // The OneDrive "running" dot follows the app starting and quitting.
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
             nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.sidebarVersion += 1 }
             }

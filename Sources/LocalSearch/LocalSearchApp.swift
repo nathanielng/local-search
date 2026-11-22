@@ -12,6 +12,7 @@ struct LocalSearchApp: App {
         }
         .commands { AppCommands(model: model) }
         Window("History", id: "history") { HistoryView().environment(model) }
+        Window("Web Locations", id: "web-locations") { WebLocationsView().environment(model) }
         Settings { SettingsView().environment(model) }
     }
 }
@@ -66,6 +67,10 @@ struct AppCommands: Commands {
                 if hosts.isEmpty { Text("No more hosts in ~/.ssh/config") }
                 ForEach(hosts, id: \.self) { h in Button(h) { model.addSSHLocation(h) } }
             }
+            Button("Web Locations…") { openWindow(id: "web-locations") }.keyboardShortcut("l", modifiers: [.command, .shift])
+            Button("Add Web Location…") { model.promptAddWebLocation() }
+            Button("Add OneDrive Folder…") { model.promptAddOneDriveFolder() }
+            Divider()
             Button("Quick Find…") { model.showQuickFind = true }.keyboardShortcut("f")
             Divider()
             Button("Back") { model.goBack() }.keyboardShortcut("[")

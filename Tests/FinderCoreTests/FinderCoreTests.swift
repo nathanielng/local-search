@@ -676,3 +676,56 @@ private func tempDir() throws -> String {
         #expect(!Projects.move("/p/c", relativeTo: "/p/c", after: true, at: u))
     }
 }
+
+@Suite struct CloudAndWebTests {
+    private func tmpDir() -> URL {
+        let u = URL(fileURLWithPath: NSTemporaryDirectory() + "cw-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
+        return u
+    }
+    @Test func oneDriveTitlesAndDiscovery() throws {
+        #expect(Cloud.title(forFolderName: "OneDrive") == "OneDrive")
+        #expect(Cloud.title(forFolderName: "OneDrive-Acme") == "OneDrive – Acme")
+        let d = tmpDir()
+        for n in ["OneDrive", "OneDrive-Acme", "Dropbox", "OneDriveFile"] {
+            if n == "OneDriveFile" { FileManager.default.createFile(atPath: d.appendingPathComponent(n).path, contents: Data()) }
+            else { try FileManager.default.createDirectory(at: d.appendingPathComponent(n), withIntermediateDirectories: true) }
+        }
+        #expect(Cloud.discover(in: d).map(\.title) == ["OneDrive", "OneDrive – Acme"])
+    }
+    @Test func manualFoldersMergeAndKeepOtherKeys() throws {
+        let d = tmpDir(), s = d.appendingPathComponent("settings.json")
+        try FileManager.default.createDirectory(at: d.appendingPathComponent("OneDrive"), withIntermediateDirectories: true)
+        try #"{"projects":[{"path":"/p"}]}"#.write(to: s, atomically: true, encoding: .utf8)
+        #expect(Cloud.add(path: "/x/odrive", title: "Mine", settings: s))
+        #expect(!Cloud.add(path: "/x/odrive", settings: s))
+        #expect(Cloud.add(path: d.appendingPathComponent("OneDrive").path, settings: s)) // also discovered
+        let all = Cloud.load(settings: s, storage: d)
+        #expect(all.map(\.title) == ["OneDrive", "Mine"] && all.map(\.manual) == [false, true])
+        #expect(Cloud.remove(path: "/x/odrive", settings: s))
+        #expect(Projects.load(from: s).count == 1)
+    }
+    @Test func onlyHttpsIsAccepted() {
+        #expect(WebLocations.validURL("https://example.org/a") != nil)
+        #expect(WebLocations.validURL("http://example.org") == nil)
+        #expect(WebLocations.validURL("s3://bucket/key") == nil)
+        #expect(WebLocations.validURL("javascript:alert(1)") == nil)
+        #expect(WebLocations.validURL("https://") == nil)
+    }
+    @Test func loadAddRemoveSearch() throws {
+        let s = tmpDir().appendingPathComponent("settings.json")
+        try #"{"web_locations":[{"title":"Wiki","url":"https://wiki.example/home","notes":"team docs"},{"url":"s3://b/k"},{"url":"http://plain.example"},{"url":"https://host.example/x"}]}"#.write(to: s, atomically: true, encoding: .utf8)
+        var all = WebLocations.load(from: s)
+        #expect(all.map(\.title) == ["Wiki", "host.example"])
+        #expect(WebLocations.add(title: "Tracker", url: "https://t.example", notes: "bugs", at: s) == .added)
+        #expect(WebLocations.add(title: "x", url: "https://t.example", at: s) == .alreadyThere)
+        #expect(WebLocations.add(title: "x", url: "ftp://t.example", at: s) == .invalid)
+        all = WebLocations.load(from: s)
+        #expect(all.count == 3)
+        #expect(WebLocations.search(all, "docs team").map(\.title) == ["Wiki"])
+        #expect(WebLocations.search(all, "t.example bugs").map(\.title) == ["Tracker"])
+        #expect(WebLocations.search(all, "docs bugs").isEmpty)
+        #expect(WebLocations.remove(url: "https://t.example", at: s))
+        #expect(WebLocations.load(from: s).count == 2)
+    }
+}

@@ -37,6 +37,8 @@ final class AppModel {
     }
     func clearKindFilter() { kindFilter = [] }
     var projects: [Project] = Projects.load()
+    var cloudFolders: [CloudFolder] = Cloud.load()
+    var webLocations: [WebLocation] = WebLocations.load()
     var networkLocations: [NetworkLocation] = []
     var connecting: String?
     @ObservationIgnored var pendingSelection: String?

@@ -24,7 +24,7 @@ The full brief lives in `finder-prompt.md` (kept outside the repo). This file tr
 
 1. (ls-style colours: done. Date-column switcher: built, awaiting hand test.) (Group by Date, multi-row tabs and Kind badges: done.)
 2. Right panel: Vertical Tabs and Recent Locations (folders): built, awaiting hand test. Files Opened and drops on Recent rows: built, awaiting hand test. Info & Preview (info and all previews): built, awaiting hand test.
-3. Projects: built, awaiting hand test. Still to do: Cloud, Web Locations; `settings.json` watching.
+3. Projects, Cloud (OneDrive) and Web Locations (https only): built, awaiting hand test. Still to do: WorkDocs Drive, s3:// Web Locations (needs the command panel), live `settings.json` watching.
 4. Command panel and `actions.json`.
 5. Filing guide, local models, MCP write tools ("Allow changes"), themes.
 

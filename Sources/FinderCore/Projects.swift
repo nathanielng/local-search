@@ -62,15 +62,6 @@ public enum Projects {
         obj["projects"] = list
         return write(obj, to: url)
     }
-
-    private static func read(_ url: URL) -> [String: Any] {
-        (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
-    }
-
-    /// Writes the whole object back, so every other key in the file is kept.
-    private static func write(_ obj: [String: Any], to url: URL) -> Bool {
-        guard let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) else { return false }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        return (try? data.write(to: url, options: .atomic)) != nil
-    }
+    private static func read(_ url: URL) -> [String: Any] { SettingsFile.read(url) }
+    private static func write(_ obj: [String: Any], to url: URL) -> Bool { SettingsFile.write(obj, to: url) }
 }

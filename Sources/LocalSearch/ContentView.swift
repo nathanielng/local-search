@@ -214,10 +214,12 @@ struct KindBadgeBar: View {
 }
 
 struct SidebarView: View {
-    @Environment(AppModel.self) private var model
-    @AppStorage("collapsed") private var collapsedRaw = ""
+    @Environment(AppModel.self) var model
+    @AppStorage("collapsed") var collapsedRaw = ""
+    @Environment(\.openWindow) var openWindow
 
-    private var collapsed: Set<String> { Set(collapsedRaw.split(separator: ",").map(String.init)) }
+    var collapsedSet: Set<String> { Set(collapsedRaw.split(separator: ",").map(String.init)) }
+    private var collapsed: Set<String> { collapsedSet }
 
     var body: some View {
         let _ = model.sidebarVersion
@@ -227,6 +229,11 @@ struct SidebarView: View {
             section("Special Folders", reorder: "special", rows: ((try? s?.specialFolders()) ?? []).map { SidebarRow(title: $0.title, path: $0.path, symbol: "bolt.fill") }, source: .special)
             section("Projects", reorder: "projects", rows: model.projects.map { SidebarRow(title: $0.title, path: $0.path, symbol: "briefcase") }, source: .project)
             section("Favorites", reorder: "favorites", rows: ((try? s?.favorites()) ?? []).map { SidebarRow(title: $0.title, path: $0.path, symbol: "star") }, source: .favorite)
+            if !model.cloudFolders.isEmpty {
+                let running = model.oneDriveRunning
+                section("Cloud", rows: model.cloudFolders.map { SidebarRow(title: $0.title, path: $0.path, symbol: "cloud", running: running, manual: $0.manual) }, source: .sidebar)
+            }
+            if !model.webLocations.isEmpty { webSection }
             section("Locations", rows: model.locationRows(), source: .sidebar)
             section("Config", rows: [".kiro", ".claude", ".aws", ".ssh"].map { SidebarRow(title: $0, path: "\(home)/\($0)", symbol: "gearshape") }, source: .sidebar)
         }
@@ -247,6 +254,7 @@ struct SidebarView: View {
                     // The whole row (no gaps) is clickable and a drop target.
                     HStack {
                         Label(row.title, systemImage: row.symbol)
+                        if row.running { Circle().fill(.green).frame(width: 6, height: 6).help("The OneDrive app is running") }
                         if model.connecting == row.title { ProgressView().controlSize(.small) }
                         Spacer(minLength: 0)
                     }
@@ -267,6 +275,7 @@ struct SidebarView: View {
                         if title == "Favorites" { Button("Remove from Favorites") { model.removeFavorite(row.path) } }
                         if title == "Special Folders" { Button("Remove from Special Folders") { model.removeSpecialFolder(row.path) } }
                         if title == "Projects" { Button("Remove from Projects") { model.removeProject(row.path) } }
+                        if title == "Cloud" && row.manual { Button("Remove from Cloud") { model.removeCloudFolder(row.path) } }
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: row.path)]) }
                     }
                     if let loc = row.network { Divider(); Button("Remove from Locations") { model.removeNetworkLocation(loc.title) } }
@@ -282,6 +291,53 @@ struct SidebarView: View {
                 Text(title).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                     .folderDropTarget(model, path: "", mode: .addProject)
             } else { Text(title) }
+        }
+    }
+}
+
+extension SidebarView {
+    /// Web Locations: https pages that open in the browser. The first ten show; the rest are in the search window.
+    @ViewBuilder var webSection: some View {
+        let isOpen = !collapsedSet.contains("Web Locations")
+        Section(isExpanded: Binding(get: { isOpen }, set: { open in
+            var c = collapsedSet; if open { c.remove("Web Locations") } else { c.insert("Web Locations") }
+            collapsedRaw = c.sorted().joined(separator: ",")
+        })) {
+            ForEach(model.webLocations.prefix(WebLocations.sidebarCount)) { w in
+                Button { model.openWebLocation(w) } label: {
+                    HStack {
+                        Label(w.title, systemImage: w.symbol)
+                        Spacer(minLength: 0)
+                        Image(systemName: "arrow.up.right").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 5).padding(.horizontal, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(w.notes.isEmpty ? w.url : "\(w.notes)\n\(w.url)")
+                .listRowInsets(EdgeInsets())
+                .contextMenu {
+                    Button("Open in Browser") { model.openWebLocation(w) }
+                    Button("Copy Address") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(w.url, forType: .string) }
+                    Divider()
+                    Button("Remove from Web Locations") { model.removeWebLocation(w) }
+                }
+            }
+            if model.webLocations.count > WebLocations.sidebarCount {
+                Button { openWindow(id: "web-locations") } label: {
+                    Label("All \(model.webLocations.count) Web Locations…", systemImage: "list.bullet")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 5).padding(.horizontal, 10).contentShape(Rectangle())
+                }.buttonStyle(.plain).listRowInsets(EdgeInsets())
+            }
+        } header: {
+            HStack {
+                Text("Web Locations")
+                Spacer()
+                Button { openWindow(id: "web-locations") } label: { Image(systemName: "magnifyingglass") }
+                    .buttonStyle(.plain).help("Search Web Locations (⇧⌘L)")
+            }
         }
     }
 }
