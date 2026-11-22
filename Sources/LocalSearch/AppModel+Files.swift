@@ -8,8 +8,49 @@ final class CopyJob {
     let title: String
     let total: Int
     var done = 0
+    var bytesDone: Int64 = 0
+    var bytesTotal: Int64 = 0
+    var current = ""
+    var preparing = true
+    var stopping = false
+    let started = Date()
     let token = CancelToken()
     init(title: String, total: Int) { self.title = title; self.total = total }
+
+    func apply(_ p: TransferProgress) {
+        done = p.itemsDone; bytesDone = p.bytesDone; bytesTotal = p.bytesTotal; current = p.current
+        preparing = false
+    }
+    var fraction: Double {
+        bytesTotal > 0 ? min(1, Double(bytesDone) / Double(bytesTotal)) : Double(done) / Double(max(total, 1))
+    }
+    /// "Copying report.mov · 1.2 of 4.8 GB · 85 MB/s · item 2 of 5"
+    var summary: String {
+        if preparing { return "\(title): preparing…" }
+        if stopping { return "Stopping…" }
+        var parts = ["\(title) \(current)"]
+        if bytesTotal > 0 {
+            let f = ByteCountFormatter()
+            f.countStyle = .file
+            parts.append("\(f.string(fromByteCount: bytesDone)) of \(f.string(fromByteCount: bytesTotal))")
+            let secs = Date().timeIntervalSince(started)
+            if secs > 1.5, bytesDone > 0 {
+                let rate = Double(bytesDone) / secs
+                parts.append("\(f.string(fromByteCount: Int64(rate)))/s")
+                let left = Double(bytesTotal - bytesDone) / rate
+                if left > 3, left < 86400 { parts.append(left < 90 ? "about \(Int(left)) s left" : "about \(Int(left / 60) + 1) min left") }
+            }
+        }
+        if total > 1 { parts.append("item \(min(done + 1, total)) of \(total)") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+struct QueuedJob {
+    let kind: FileOpKind
+    let paths: [String]
+    let folder: String
+    let choice: ConflictChoice
 }
 
 extension AppModel {
@@ -17,16 +58,16 @@ extension AppModel {
 
     // MARK: Create and rename
 
-    func newFolder() { create { FileOps.createFolder(in: $0, store: self.store) } }
-    func newTextFile() { create { FileOps.createTextFile(in: $0, store: self.store) } }
+    func newFolder() { let st = store; create { FileOps.createFolder(in: $0, store: st) } }
+    func newTextFile() { let st = store; create { FileOps.createTextFile(in: $0, store: st) } }
 
     /// Created in the current folder, selected, and opened for renaming.
-    private func create(_ make: (String) -> FileOpResult) {
-        let r = make(current.path)
-        guard let dst = r.dst else { warning = r.message; return }
-        pushUndo(UndoRecord(label: dst.hasSuffix(".txt") ? "New Text File" : "New Folder", steps: [.trash(dst)]))
-        let id = selectedTabID
+    private func create(_ make: @escaping @Sendable (String) -> FileOpResult) {
+        let folder = current.path, id = selectedTabID
         Task {
+            let r = await inBackground("Creating…") { make(folder) }
+            guard let dst = r.dst else { warning = r.message; return }
+            pushUndo(UndoRecord(label: dst.hasSuffix(".txt") ? "New Text File" : "New Folder", steps: [.trash(dst)]))
             if let list = await Self.listAsync(current.path, hidden: showHidden), id == selectedTabID { entries = list }
             setSelection([dst])
             renamingPath = dst
@@ -41,7 +82,14 @@ extension AppModel {
 
     func commitRename(_ path: String, to name: String) {
         renamingPath = nil
-        let r = FileOps.rename(path, to: name, store: store)
+        let store = self.store
+        Task {
+            let r = await inBackground("Renaming…") { FileOps.rename(path, to: name, store: store) }
+            finishRename(path, r)
+        }
+    }
+
+    private func finishRename(_ path: String, _ r: FileOpResult) {
         warning = nil
         if r.result == "failed" || r.message == "invalid name" || r.message == "protected location" {
             let old = (path as NSString).lastPathComponent
@@ -116,28 +164,38 @@ extension AppModel {
     // MARK: Background jobs
 
     /// Copies ask what to do about name clashes (Keep Both / Replace / Skip / Stop); moves always keep both.
+    /// A job started while another runs waits its turn.
     func runJob(_ kind: FileOpKind, paths: [String], into folder: String) {
-        guard let store, copyJob == nil else { if copyJob != nil { warning = "Another copy is still running" }; return }
+        guard store != nil else { return }
         var choice = ConflictChoice.keepBoth
         if kind == .copy, !FileOps.conflicts(sources: paths, into: folder).isEmpty {
             guard let c = askConflict(FileOps.conflicts(sources: paths, into: folder)) else { return }
             choice = c
         }
-        let job = CopyJob(title: kind == .copy ? "Copying" : "Moving", total: paths.count)
+        let q = QueuedJob(kind: kind, paths: paths, folder: folder, choice: choice)
+        if copyJob == nil { start(q) } else { jobQueue.append(q) }
+    }
+
+    private func start(_ q: QueuedJob) {
+        guard let store else { return }
+        let job = CopyJob(title: q.kind == .copy ? "Copying" : "Moving", total: q.paths.count)
         copyJob = job
-        let onFinish = choice
         Task {
             let results = await Task.detached {
-                FileOps.perform(kind, sources: paths, into: folder, store: store, conflict: onFinish, cancel: job.token) { d, _ in
-                    Task { @MainActor in job.done = d }
-                }
+                FileOps.perform(q.kind, sources: q.paths, into: q.folder, store: store, conflict: q.choice, cancel: job.token,
+                                detail: { p in Task { @MainActor in job.apply(p) } })
             }.value
             copyJob = nil
-            if let rec = UndoRecord.forJob(kind, results: results, conflict: onFinish) { pushUndo(rec) }
-            let refused = results.filter { $0.result != "done" }
-            if job.token.isCancelled { warning = "Stopped after \(results.count) of \(paths.count)" }
-            else { warning = refused.isEmpty ? nil : "\(refused.count) item(s) not \(kind == .move ? "moved" : "copied"): \(refused[0].message ?? refused[0].result)" }
+            if let rec = UndoRecord.forJob(q.kind, results: results, conflict: q.choice) { pushUndo(rec) }
+            let refused = results.filter { $0.result != "done" && $0.message != "stopped" }
+            if job.token.isCancelled {
+                jobQueue.removeAll()    // Stop ends everything that was waiting too
+                warning = "Stopped after \(results.filter { $0.result == "done" }.count) of \(q.paths.count)"
+            } else {
+                warning = refused.isEmpty ? nil : "\(refused.count) item(s) not \(q.kind == .move ? "moved" : "copied"): \(refused[0].message ?? refused[0].result)"
+            }
             refresh(); historyVersion += 1
+            if !jobQueue.isEmpty { start(jobQueue.removeFirst()) }
         }
     }
 
@@ -165,4 +223,19 @@ extension AppModel {
     }
 
     func trashSelection() { trash(Array(selection)) }
+}
+
+extension AppModel {
+    /// Run slow file work off the main thread. A small "working" note appears only if it takes more than a moment.
+    func inBackground<T: Sendable>(_ label: String, _ work: @escaping @Sendable () -> T) async -> T {
+        backgroundCount += 1
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            if backgroundCount > 0 { backgroundLabel = label }
+        }
+        let r = await Task.detached { work() }.value
+        backgroundCount -= 1
+        if backgroundCount == 0 { backgroundLabel = nil }
+        return r
+    }
 }

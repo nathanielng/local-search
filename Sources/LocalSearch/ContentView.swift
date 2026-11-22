@@ -31,13 +31,9 @@ struct ContentView: View {
                 if showKindBadges { KindBadgeBar(); Divider() }
                 FileListView()
                 if showCommands { Divider(); CommandPanel() }
-                if let job = model.copyJob {
-                    HStack {
-                        ProgressView(value: Double(job.done), total: Double(max(job.total, 1))).frame(maxWidth: 220)
-                        Text("\(job.title) \(job.done) of \(job.total)").font(.caption)
-                        Button("Stop") { job.token.cancel() }.controlSize(.small)
-                        Spacer()
-                    }.padding(6)
+                if let job = model.copyJob { TransferBar(job: job, waiting: model.jobQueue.count) }
+                else if let label = model.backgroundLabel {
+                    HStack(spacing: 6) { ProgressView().controlSize(.small); Text(label).font(.caption); Spacer() }.padding(6)
                 }
                 if let w = model.warning {
                     HStack(spacing: 6) {
@@ -567,5 +563,23 @@ enum RightPanelState {
         if shown && anyPane { d.set(false, forKey: "showRightPanel"); return }
         d.set(true, forKey: "showRightPanel")
         if !anyPane { d.set(true, forKey: "showRecent") }
+    }
+}
+
+/// Progress for the running copy or move: bar, what's being copied, bytes, speed, and Stop.
+struct TransferBar: View {
+    var job: CopyJob
+    var waiting: Int
+    var body: some View {
+        HStack(spacing: 8) {
+            if job.preparing { ProgressView().controlSize(.small) }
+            else { ProgressView(value: job.fraction).frame(width: 140) }
+            Text(job.summary).font(.caption).lineLimit(1).truncationMode(.middle)
+            if waiting > 0 { Text("+\(waiting) waiting").font(.caption).foregroundStyle(.secondary) }
+            Spacer(minLength: 0)
+            Button(waiting > 0 ? "Stop All" : "Stop") { job.stopping = true; job.token.cancel() }.controlSize(.small)
+        }
+        .padding(6)
+        .background(.quaternary.opacity(0.5))
     }
 }

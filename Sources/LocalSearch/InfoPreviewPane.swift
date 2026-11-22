@@ -199,7 +199,7 @@ struct InfoPreviewPane: View {
             case .archive:
                 guard let a = Archive.list(path: path) else { return (info, .result(.unsupported("Can't read this archive"))) }
                 return (info, .archive(a.entries, truncated: a.truncated))
-            case .unsupported(let m): return (info, .result(.unsupported(m)))
+            case .unsupported(let m): return (info, .result(.unsupported(BinarySniff.message(path: path, fallback: m))))
             case .image:
                 return (info, Self.thumbnail(path).map { .image($0) } ?? .result(.unsupported("Can't read this image")))
             case .markdown:

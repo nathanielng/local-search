@@ -26,6 +26,9 @@ final class AppModel {
     var historyVersion = 0 // bump to refresh the History window
     var renamingPath: String?
     var copyJob: CopyJob?
+    var jobQueue: [QueuedJob] = []
+    var backgroundCount = 0
+    var backgroundLabel: String?
     var undoStack: [UndoRecord] = []
     var showQuickFind = false
     /// Kind badge filter: applies only in the tab and folder where it was chosen.
@@ -411,10 +414,13 @@ final class AppModel {
     // MARK: File operations
 
     func trash(_ paths: [String]) {
-        let (rec, results) = FileOps.trash(paths, store: store)
-        if let rec { pushUndo(rec) }
-        if let f = results.first(where: { $0.result == "failed" }) { warning = f.message }
-        refresh(); historyVersion += 1
+        let store = self.store
+        Task {
+            let (rec, results) = await inBackground("Moving to Trash…") { FileOps.trash(paths, store: store) }
+            if let rec { pushUndo(rec) }
+            if let f = results.first(where: { $0.result == "failed" }) { warning = f.message }
+            refresh(); historyVersion += 1
+        }
     }
 
     // MARK: Drop highlight

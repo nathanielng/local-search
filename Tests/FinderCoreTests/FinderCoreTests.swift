@@ -948,3 +948,193 @@ private func tempDir() throws -> String {
         #expect(PathText.looksLikePath("") == nil && PathText.looksLikePath(nil) == nil)
     }
 }
+
+@Suite struct FileCopierTests {
+    private func tmp() throws -> String {
+        let d = NSTemporaryDirectory() + "fc-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
+        return d
+    }
+    private func big(_ path: String, mb: Int) throws {
+        FileManager.default.createFile(atPath: path, contents: nil)
+        let h = try FileHandle(forWritingTo: URL(fileURLWithPath: path))
+        let chunk = Data((0..<1_048_576).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+        for _ in 0..<mb { try h.write(contentsOf: chunk) }
+        try h.close()
+    }
+    final class Box: @unchecked Sendable { var values: [Int64] = []; let l = NSLock(); func add(_ v: Int64) { l.lock(); values.append(v); l.unlock() } }
+
+    @Test func copiesFileAndReportsGrowingBytes() throws {
+        let d = try tmp(); try big(d + "/a.bin", mb: 40)
+        let box = Box()
+        try FileCopier.copy(d + "/a.bin", to: d + "/b.bin", allowClone: false, onBytes: { box.add($0) })
+        #expect(FileManager.default.contents(atPath: d + "/a.bin") == FileManager.default.contents(atPath: d + "/b.bin"))
+        #expect(box.values.last == Int64(40 * 1_048_576))
+        #expect(box.values == box.values.sorted())
+    }
+    @Test func copiesFolderTreeAndCounts() throws {
+        let d = try tmp()
+        try FileManager.default.createDirectory(atPath: d + "/src/sub", withIntermediateDirectories: true)
+        try big(d + "/src/one.bin", mb: 2); try big(d + "/src/sub/two.bin", mb: 3)
+        try FileManager.default.createSymbolicLink(atPath: d + "/src/ln", withDestinationPath: "one.bin")
+        #expect(FileCopier.byteCount(d + "/src") == Int64(5 * 1_048_576))
+        let box = Box()
+        try FileCopier.copy(d + "/src", to: d + "/dst", allowClone: false, onBytes: { box.add($0) })
+        #expect(FileCopier.byteCount(d + "/dst") == Int64(5 * 1_048_576))
+        #expect(box.values.last == Int64(5 * 1_048_576))
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: d + "/dst/ln")) == "one.bin")   // link kept as a link
+    }
+    @Test func stopMidFileRemovesPartialCopy() throws {
+        let d = try tmp(); try big(d + "/a.bin", mb: 200)
+        let token = CancelToken()
+        #expect(throws: FileCopier.Cancelled.self) {
+            try FileCopier.copy(d + "/a.bin", to: d + "/b.bin", cancel: token, allowClone: false, onBytes: { if $0 > 5_000_000 { token.cancel() } })
+        }
+        #expect(!FileManager.default.fileExists(atPath: d + "/b.bin"))
+        #expect(FileManager.default.fileExists(atPath: d + "/a.bin"))
+    }
+    @Test func cloneStillReportsFullSize() throws {
+        let d = try tmp(); try big(d + "/a.bin", mb: 3)
+        let box = Box()
+        try FileCopier.copy(d + "/a.bin", to: d + "/b.bin", onBytes: { box.add($0) })
+        #expect(box.values.last == Int64(3 * 1_048_576))
+    }
+    @Test func moveOnSameVolumeAndMissingSource() throws {
+        let d = try tmp(); try big(d + "/a.bin", mb: 1)
+        try FileCopier.move(d + "/a.bin", to: d + "/m.bin")
+        #expect(!FileManager.default.fileExists(atPath: d + "/a.bin") && FileManager.default.fileExists(atPath: d + "/m.bin"))
+        #expect(throws: (any Error).self) { try FileCopier.move(d + "/nope", to: d + "/x") }
+    }
+}
+
+@Suite struct TransferProgressTests {
+    final class Log: @unchecked Sendable {
+        var items: [TransferProgress] = []; let l = NSLock()
+        func add(_ p: TransferProgress) { l.lock(); items.append(p); l.unlock() }
+    }
+    private func tmp() throws -> String {
+        let d = NSTemporaryDirectory() + "tp-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: d + "/out", withIntermediateDirectories: true)
+        return d
+    }
+    private func file(_ p: String, mb: Int) throws {
+        try Data(repeating: 7, count: mb * 1_048_576).write(to: URL(fileURLWithPath: p))
+    }
+
+    @Test func copyReportsItemsAndBytesToTheEnd() throws {
+        let d = try tmp(); try file(d + "/a.bin", mb: 2); try file(d + "/b.bin", mb: 3)
+        let log = Log()
+        let r = FileOps.perform(.copy, sources: [d + "/a.bin", d + "/b.bin"], into: d + "/out", store: nil, detail: { log.add($0) })
+        #expect(r.allSatisfy { $0.result == "done" })
+        let last = try #require(log.items.last)
+        #expect(last.itemsDone == 2 && last.itemsTotal == 2)
+        #expect(last.bytesTotal == Int64(5 * 1_048_576) && last.bytesDone == last.bytesTotal)
+        #expect(log.items.map(\.bytesDone) == log.items.map(\.bytesDone).sorted())
+        #expect(log.items.contains { $0.current == "b.bin" })
+    }
+    @Test func stopBeforeSecondItemKeepsFirstOnly() throws {
+        let d = try tmp(); try file(d + "/a.bin", mb: 1); try file(d + "/b.bin", mb: 1)
+        let token = CancelToken()
+        let r = FileOps.perform(.copy, sources: [d + "/a.bin", d + "/b.bin"], into: d + "/out", store: nil, cancel: token,
+                                detail: { if $0.itemsDone == 1 { token.cancel() } })
+        #expect(r.filter { $0.result == "done" }.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: d + "/out/b.bin"))
+    }
+    @Test func moveStillWorksAndKeepsBothOnClash() throws {
+        let d = try tmp(); try file(d + "/a.bin", mb: 1); try file(d + "/out/a.bin", mb: 1)
+        let r = FileOps.perform(.move, sources: [d + "/a.bin"], into: d + "/out", store: nil)
+        #expect(r.first?.result == "done" && r.first?.dst == d + "/out/a 2.bin")
+        #expect(!FileManager.default.fileExists(atPath: d + "/a.bin"))
+    }
+}
+
+@Suite struct BinarySniffTests {
+    private func d(_ s: String) -> Data { Data(s.utf8) }
+    private func file(_ name: String, _ data: Data) -> String {
+        let p = NSTemporaryDirectory() + "bs-\(UUID().uuidString)-" + name
+        try? data.write(to: URL(fileURLWithPath: p)); return p
+    }
+
+    @Test func recognisesCommonFormats() {
+        #expect(BinarySniff.identify(d("%PDF-1.7\n%âãÏÓ"))?.name == "PDF document")
+        #expect(BinarySniff.identify(d("%PDF-1.7\n"))?.detail == "version 1.7")
+        #expect(BinarySniff.identify(d("SQLite format 3\0abc"))?.name == "SQLite database")
+        #expect(BinarySniff.identify(Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0]))?.name == "PNG image")
+        #expect(BinarySniff.identify(d("GIF89a\u{1}\0"))?.detail == "GIF89a")
+        #expect(BinarySniff.identify(Data([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0]))?.name == "ELF executable")
+        #expect(BinarySniff.identify(Data([0xCF, 0xFA, 0xED, 0xFE, 7, 0, 0, 1, 3, 0, 0, 0, 2, 0, 0, 0]))?.name == "Mach-O executable")
+        #expect(BinarySniff.identify(Data([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 2]))?.name == "Mach-O universal binary")
+        #expect(BinarySniff.identify(Data([0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 0x34]))?.name == "Java class file")
+        #expect(BinarySniff.identify(d("bplist00\u{d1}"))?.name == "Apple binary property list")
+        #expect(BinarySniff.identify(Data([0, 0, 0, 0x20]) + d("ftypheic"))?.name == "HEIC image")
+        #expect(BinarySniff.identify(d("RIFF\0\0\0\0WAVEfmt "))?.name == "WAV audio")
+        #expect(BinarySniff.identify(Data([1, 2, 3, 4, 5, 6])) == nil)
+        #expect(BinarySniff.identify(Data()) == nil)
+    }
+    @Test func readableOnlyWhenItMeansSomething() {
+        let a = BinarySniff.readable(d("SQLite format 3\0") + Data(repeating: 0, count: 100))
+        #expect(a.leading == "SQLite format 3")
+        let noise = Data((0..<512).map { UInt8(truncatingIfNeeded: $0 &* 197 &+ 13) })
+        #expect(BinarySniff.readable(noise).strings.isEmpty)           // noise gives nothing
+        let hdr = d("\0\0\0\0This program cannot be run in DOS mode.\0\0")
+        #expect(BinarySniff.readable(hdr).strings == ["This program cannot be run in DOS mode."])
+        #expect(BinarySniff.readable(Data([0, 1, 2, 3])).leading == nil)
+        #expect(BinarySniff.readable(d("ab\0cd")).leading == nil)       // too short
+    }
+    @Test func messageNamesFormatAndFlagsWrongName() {
+        let pdf = file("report.pdf", d("%PDF-1.4\n") + Data([0, 1, 2]))
+        #expect(BinarySniff.message(path: pdf, fallback: "x") == "PDF document · version 1.4")
+        let lie = file("notes.txt", Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0]))
+        let m = BinarySniff.message(path: lie, fallback: "x")
+        #expect(m.contains("PNG image") && m.contains("The name ends in .txt, but the contents look like a PNG image."))
+        let unknown = file("blob.dat", d("MYFORMAT v2\0") + Data([0, 1, 2, 3]))
+        #expect(BinarySniff.message(path: unknown, fallback: "Binary file") == "Binary file\nStarts with “MYFORMAT v2”")
+        let nothing = file("n.dat", Data([0, 1, 2, 3, 4, 5]))
+        #expect(BinarySniff.message(path: nothing, fallback: "Binary file") == "Binary file")
+        #expect(BinarySniff.message(path: "/nonexistent/zz", fallback: "Binary file") == "Binary file")
+    }
+}
+
+@Suite struct HashActionTests {
+    private func bundled() throws -> ActionFile {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Resources/actions.json").standardized
+        return try #require(Actions.parse(try Data(contentsOf: url)).file)
+    }
+    private func run(_ cmd: String, in dir: String) throws -> (String, Int32) {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/zsh"); p.arguments = ["-c", cmd]
+        p.currentDirectoryURL = URL(fileURLWithPath: dir)
+        let out = Pipe(); p.standardOutput = out; p.standardError = out
+        try p.run(); p.waitUntilExit()
+        return (String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self), p.terminationStatus)
+    }
+
+    @Test func hashesAndCheckWorkOnARealFile() throws {
+        let f = try bundled()
+        let dir = NSTemporaryDirectory() + "ha-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try "hello\n".write(toFile: dir + "/my file.txt", atomically: true, encoding: .utf8)
+        let ctx = ActionContext(folder: dir, selection: [dir + "/my file.txt"])
+
+        let hashes = try #require(f.actions.first { $0.id == "hashes" })
+        #expect(Actions.availability(of: hashes, in: ctx).isAvailable)
+        let (out, code) = try run(Actions.render(hashes, in: ctx), in: dir)
+        #expect(code == 0)
+        #expect(out.contains("5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"))   // sha256("hello\n")
+        #expect(out.contains("b1946ac92492d2347c6235b4d2611184"))                                    // md5("hello\n")
+
+        let check = try #require(f.actions.first { $0.id == "check-hash" })
+        let good = Actions.render(check, in: ctx, asks: ["Expected hash": "5891B5B522D5DF086D0FF0B110FBD9D21BB4FC7163AF34D08286A2E846F6BE03"])
+        let (ok, okCode) = try run(good, in: dir)
+        #expect(okCode == 0 && ok.hasPrefix("MATCH"))
+        let bad = Actions.render(check, in: ctx, asks: ["Expected hash": String(repeating: "0", count: 64)])
+        let (no, noCode) = try run(bad, in: dir)
+        #expect(noCode == 2 && no.hasPrefix("DIFFERENT"))
+        let md5 = Actions.render(check, in: ctx, asks: ["Expected hash": "b1946ac92492d2347c6235b4d2611184"])
+        #expect(try run(md5, in: dir).1 == 0)
+        let empty = Actions.render(check, in: ctx)
+        #expect(try run(empty, in: dir).1 == 1)
+        let junk = Actions.render(check, in: ctx, asks: ["Expected hash": "abc; rm -rf ~"])
+        let (jo, jc) = try run(junk, in: dir)
+        #expect(jc == 1 && jo.contains("doesn't look like"))
+    }
+}

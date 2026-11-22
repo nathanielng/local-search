@@ -65,15 +65,24 @@ public enum FileOps {
     public static func perform(_ kind: FileOpKind, sources: [String], into folder: String,
                                store: FinderStore?, actor: String = "app",
                                conflict: ConflictChoice = .keepBoth, cancel: CancelToken? = nil,
-                               progress: (@Sendable (Int, Int) -> Void)? = nil) -> [FileOpResult] {
+                               progress: (@Sendable (Int, Int) -> Void)? = nil,
+                               detail: (@Sendable (TransferProgress) -> Void)? = nil) -> [FileOpResult] {
         let batch = UUID().uuidString
         let fm = FileManager.default
         let dstFolder = URL(fileURLWithPath: folder).standardized.path
         var results: [FileOpResult] = []
 
+        // Byte progress: count the bytes first (a move on one volume is just a rename, so it doesn't need it).
+        var sizes: [String: Int64] = [:]
+        var bytesTotal: Int64 = 0
+        if detail != nil && kind == .copy {
+            for raw in sources { let n = FileCopier.byteCount(raw); sizes[raw] = n; bytesTotal += n }
+        }
+        let reporter = TransferReporter(total: sources.count, bytesTotal: bytesTotal, sink: detail)
         for (index, raw) in sources.enumerated() {
             if cancel?.isCancelled == true { break }
             progress?(index, sources.count)
+            reporter.report(index, (raw as NSString).lastPathComponent, 0, force: true)
             let src = URL(fileURLWithPath: raw).standardized.path
             let target = (dstFolder as NSString).appendingPathComponent((src as NSString).lastPathComponent)
             var r = FileOpResult(src: src, dst: nil, result: "skipped", message: nil)
@@ -92,8 +101,11 @@ public enum FileOps {
             } else {
                 let dst = uniqueDestination(name: (src as NSString).lastPathComponent, in: dstFolder)
                 do {
-                    if kind == .move { try fm.moveItem(atPath: src, toPath: dst) }
-                    else { try fm.copyItem(atPath: src, toPath: dst) }
+                    let name = (src as NSString).lastPathComponent
+                    let onBytes: @Sendable (Int64) -> Void = { reporter.report(index, name, $0) }
+                    if kind == .move { try FileCopier.move(src, to: dst, cancel: cancel, onBytes: onBytes) }
+                    else { try FileCopier.copy(src, to: dst, cancel: cancel, onBytes: onBytes) }
+                    reporter.finish(item: sizes[raw] ?? 0)
                     r.dst = dst; r.result = "done"
                     if conflict == .replace && dst != target && target != src {
                         do {
@@ -102,6 +114,8 @@ public enum FileOps {
                             r.dst = target
                         } catch { r.message = "kept both: couldn't replace (\(error.localizedDescription))" }
                     }
+                } catch is FileCopier.Cancelled {
+                    r.message = "stopped"
                 } catch {
                     r.result = "failed"; r.message = error.localizedDescription
                 }
@@ -111,6 +125,7 @@ public enum FileOps {
                                   result: r.result, actor: actor)
         }
         progress?(results.count, sources.count)
+        reporter.report(results.count, "", 0, force: true)
         return results
     }
 
@@ -186,4 +201,37 @@ public final class CancelToken: @unchecked Sendable {
     public init() {}
     public func cancel() { lock.lock(); flag = true; lock.unlock() }
     public var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return flag }
+}
+
+
+/// Turns per-item byte counts into overall progress, at most ten times a second.
+final class TransferReporter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let total: Int, bytesTotal: Int64
+    private let sink: (@Sendable (TransferProgress) -> Void)?
+    private let throttle = Throttle(every: 0.1)
+    private var before: Int64 = 0
+    init(total: Int, bytesTotal: Int64, sink: (@Sendable (TransferProgress) -> Void)?) {
+        self.total = total; self.bytesTotal = bytesTotal; self.sink = sink
+    }
+    func finish(item bytes: Int64) { lock.lock(); before += bytes; lock.unlock() }
+    func report(_ index: Int, _ name: String, _ item: Int64, force: Bool = false) {
+        guard let sink, force || throttle.ready() else { return }
+        lock.lock(); let done = before + item; lock.unlock()
+        sink(TransferProgress(itemsDone: index, itemsTotal: total, bytesDone: min(done, max(bytesTotal, done)), bytesTotal: bytesTotal, current: name))
+    }
+}
+
+/// Lets a fast loop report at most every `every` seconds.
+final class Throttle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = Date.distantPast
+    private let every: TimeInterval
+    init(every: TimeInterval) { self.every = every }
+    func ready() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        let now = Date()
+        guard now.timeIntervalSince(last) >= every else { return false }
+        last = now; return true
+    }
 }

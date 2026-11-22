@@ -91,7 +91,7 @@ public enum Preview {
         defer { try? h.close() }
         let head = (try? h.read(upToCount: sniffBytes)) ?? Data()
         if head.isEmpty { return .text(TextPreview(text: "", truncated: false)) }
-        if looksBinary(head) { return .unsupported("Binary file") }
+        if looksBinary(head) { return .unsupported(BinarySniff.message(path: path, head: head, fallback: "Binary file")) }
         if size > bigFile && !allowLarge { return .needsClick(size: size) }
         try? h.seek(toOffset: 0)
         let data = (try? h.read(upToCount: cap)) ?? head
