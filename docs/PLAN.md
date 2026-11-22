@@ -23,8 +23,8 @@ The full brief lives in `finder-prompt.md` (kept outside the repo). This file tr
 ## Next
 
 1. (ls-style colours: done. Date-column switcher: built, awaiting hand test.) (Group by Date, multi-row tabs and Kind badges: done.)
-2. Right panel: Vertical Tabs and Recent Locations (folders): built, awaiting hand test. Files Opened and drops on Recent rows: built, awaiting hand test. Info & Preview (info, text, Markdown, images): built, awaiting hand test. Still to do: JSON, CSV/TSV, SVG, HTML, archives and alias previews.
-3. Projects, Cloud, Web Locations; `settings.json` watching.
+2. Right panel: Vertical Tabs and Recent Locations (folders): built, awaiting hand test. Files Opened and drops on Recent rows: built, awaiting hand test. Info & Preview (info and all previews): built, awaiting hand test.
+3. Projects: built, awaiting hand test. Still to do: Cloud, Web Locations; `settings.json` watching.
 4. Command panel and `actions.json`.
 5. Filing guide, local models, MCP write tools ("Allow changes"), themes.
 

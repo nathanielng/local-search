@@ -36,6 +36,7 @@ final class AppModel {
         kindFilterTab = selectedTabID; kindFilterPath = current.path
     }
     func clearKindFilter() { kindFilter = [] }
+    var projects: [Project] = Projects.load()
     var networkLocations: [NetworkLocation] = []
     var connecting: String?
     @ObservationIgnored var pendingSelection: String?
@@ -296,6 +297,12 @@ final class AppModel {
         guard !paths.isEmpty, let store else { return }
         // A folder dropped on a sidebar row becomes a shortcut; ⌘ moves it in instead.
         func isDir(_ p: String) -> Bool { var d: ObjCBool = false; return FileManager.default.fileExists(atPath: p, isDirectory: &d) && d.boolValue }
+        if mode == .addProject {
+            let dirs = paths.filter(isDir)
+            if dirs.isEmpty { warning = "Only folders can be added to Projects"; return }
+            dirs.forEach(addProject)
+            return
+        }
         if mode == .addShortcut {
             let dirs = paths.filter(isDir)
             if dirs.isEmpty { warning = "Only folders can be added to Favorites"; return }
@@ -327,6 +334,10 @@ final class AppModel {
 
     /// Drag a sidebar shortcut to a new place in its own list.
     func reorderSidebar(section: String, path: String, relativeTo target: String, after: Bool) {
+        if section == "projects" {
+            if Projects.move(path, relativeTo: target, after: after) { reloadProjects() }
+            return
+        }
         let ok = section == "favorites"
             ? (try? store?.moveFavorite(path, relativeTo: target, after: after))
             : (try? store?.moveSpecialFolder(path, relativeTo: target, after: after))
@@ -341,6 +352,25 @@ final class AppModel {
     func removeSpecialFolder(_ path: String) {
         try? store?.removeSpecialFolder(path: path)
         sidebarVersion += 1
+    }
+
+    func reloadProjects() {
+        projects = Projects.load()
+        sidebarVersion += 1
+    }
+
+    func addProject(_ path: String) {
+        switch Projects.add(path: path) {
+        case .full: warning = "Projects is full (20 items)"
+        case .failed: warning = "Couldn't save the project to settings.json"
+        case .added, .alreadyThere: break
+        }
+        reloadProjects()
+    }
+
+    func removeProject(_ path: String) {
+        Projects.remove(path: path)
+        reloadProjects()
     }
 
     func removeFavorite(_ path: String) {

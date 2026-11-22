@@ -1,6 +1,7 @@
 import SwiftUI
 import FinderCore
 import ImageIO
+import WebKit
 
 /// Facts about one item, gathered off the main thread.
 struct FileInfo: Sendable {
@@ -43,6 +44,11 @@ enum PreviewContent {
     case result(PreviewResult)
     case markdown([MarkdownBlock], truncated: Bool)
     case image(CGImage)
+    case json(String, truncated: Bool)
+    case csv(CSVTable)
+    case web(String, zoom: Double)
+    case archive([String], truncated: Bool)
+    case alias(String?)
 }
 
 struct InfoPreviewPane: View {
@@ -55,7 +61,8 @@ struct InfoPreviewPane: View {
 
     /// The one selected item, or the open folder when nothing (or several things) is selected.
     private var target: String {
-        model.selection.count == 1 ? model.selection.first! : model.current.path
+        if model.selection.count == 1, let one = model.selection.first, one.hasPrefix("/") { return one }
+        return model.current.path
     }
     private var loadKey: String { "\(target)|\(allowLarge)|\(showSecrets)|\(model.historyVersion)" }
 
@@ -109,6 +116,20 @@ struct InfoPreviewPane: View {
         case .loading: ProgressView().controlSize(.small)
         case .image(let img):
             Image(decorative: img, scale: 1).resizable().scaledToFit().frame(maxWidth: .infinity)
+        case .json(let text, let truncated):
+            Text(text).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+            if truncated { note("Showing the first part of this file") }
+        case .csv(let t):
+            CSVView(table: t)
+        case .web(let html, let zoom):
+            WebPreview(html: html, zoom: zoom).frame(height: 300)
+        case .archive(let entries, let truncated):
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, e in Text(e).font(.system(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
+            }.textSelection(.enabled)
+            if truncated { note("Showing the first \(Archive.maxEntries) entries") }
+        case .alias(let target):
+            note(target.map { "Alias to \($0)" } ?? "Alias (the original can't be found)")
         case .markdown(let blocks, let truncated):
             MarkdownView(blocks: blocks)
             if truncated { note("Showing the first 64 KB") }
@@ -139,7 +160,34 @@ struct InfoPreviewPane: View {
         let loaded = await Task.detached(priority: .userInitiated) { () -> (FileInfo?, PreviewContent) in
             let info = FileInfo.load(path: path, lastOpened: opened)
             guard let i = info, !i.isDirectory else { return (info, .none) }
+            let url = URL(fileURLWithPath: path)
+            if (try? url.resourceValues(forKeys: [.isAliasFileKey]))?.isAliasFile == true {
+                let target = (try? URL(resolvingAliasFileAt: url, options: [.withoutUI, .withoutMounting]))?.path
+                return (info, .alias(target))
+            }
             switch Preview.kind(forName: i.name) {
+            case .json:
+                let r = Preview.loadText(path: path, size: i.size ?? 0, allowLarge: large, showSecrets: secrets, cap: JSONPreview.maxBytes)
+                guard case .text(let t) = r else { return (info, .result(r)) }
+                if !t.truncated, let pretty = JSONPreview.pretty(t.text) { return (info, .json(pretty, truncated: false)) }
+                return (info, .json(t.text, truncated: t.truncated))
+            case .csv(let d):
+                let r = Preview.loadText(path: path, size: i.size ?? 0, allowLarge: large, showSecrets: secrets)
+                guard case .text(let t) = r else { return (info, .result(r)) }
+                return (info, .csv(CSVPreview.parse(t.text, delimiter: d)))
+            case .svg:
+                let r = Preview.loadText(path: path, size: i.size ?? 0, allowLarge: large, showSecrets: secrets, cap: JSONPreview.maxBytes)
+                guard case .text(let t) = r, !t.truncated else { return (info, r.asTextOrUnsupported("SVG is too large to preview")) }
+                let b64 = Data(t.text.utf8).base64EncodedString()
+                // An <img> never runs scripts or loads outside resources.
+                return (info, .web("<body style='margin:0;background:transparent'><img style='width:100%' src='data:image/svg+xml;base64,\(b64)'></body>", zoom: 1))
+            case .html:
+                let r = Preview.loadText(path: path, size: i.size ?? 0, allowLarge: large, showSecrets: secrets, cap: JSONPreview.maxBytes)
+                guard case .text(let t) = r else { return (info, .result(r)) }
+                return (info, .web(t.text, zoom: 0.5))
+            case .archive:
+                guard let a = Archive.list(path: path) else { return (info, .result(.unsupported("Can't read this archive"))) }
+                return (info, .archive(a.entries, truncated: a.truncated))
             case .unsupported(let m): return (info, .result(.unsupported(m)))
             case .image:
                 return (info, Self.thumbnail(path).map { .image($0) } ?? .result(.unsupported("Can't read this image")))
@@ -194,5 +242,79 @@ struct MarkdownView: View {
     private func inline(_ s: String) -> Text {
         if let a = try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) { return Text(a) }
         return Text(s)
+    }
+}
+
+extension PreviewResult {
+    /// A text result keeps its text; anything else becomes the given message.
+    func asTextOrUnsupported(_ message: String) -> PreviewContent {
+        switch self {
+        case .text(let t): .result(.text(t))
+        case .needsClick, .withheld, .unsupported: .result(self)
+        }
+    }
+}
+
+/// First rows and columns of a CSV or TSV file as a table.
+struct CSVView: View {
+    let table: CSVTable
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ScrollView(.horizontal) {
+                Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 2) {
+                    ForEach(Array(table.rows.enumerated()), id: \.offset) { n, row in
+                        GridRow {
+                            ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                                Text(cell).lineLimit(1).fontWeight(n == 0 ? .semibold : .regular)
+                            }
+                        }
+                    }
+                }.font(.system(size: 11)).textSelection(.enabled)
+            }
+            if table.moreRows || table.moreColumns {
+                Text("Showing the first \(CSVPreview.maxRows) rows and \(CSVPreview.maxColumns) columns")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// HTML shown with JavaScript off and every http(s) load blocked; links never open.
+struct WebPreview: NSViewRepresentable {
+    let html: String
+    let zoom: Double
+
+    static let blockWeb = #"[{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}}]"#
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var loaded = ""
+        func webView(_ w: WKWebView, decidePolicyFor a: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+            decisionHandler(a.navigationType == .other ? .allow : .cancel)
+        }
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let cfg = WKWebViewConfiguration()
+        cfg.defaultWebpagePreferences.allowsContentJavaScript = false
+        let wv = WKWebView(frame: .zero, configuration: cfg)
+        wv.navigationDelegate = context.coordinator
+        wv.pageZoom = zoom
+        let html = self.html, coordinator = context.coordinator
+        WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "no-web", encodedContentRuleList: Self.blockWeb) { list, _ in
+            Task { @MainActor in
+                if let list { wv.configuration.userContentController.add(list) }
+                coordinator.loaded = html
+                wv.loadHTMLString(html, baseURL: nil)
+            }
+        }
+        return wv
+    }
+    func updateNSView(_ wv: WKWebView, context: Context) {
+        wv.pageZoom = zoom
+        if context.coordinator.loaded != html, !context.coordinator.loaded.isEmpty {
+            context.coordinator.loaded = html
+            wv.loadHTMLString(html, baseURL: nil)
+        }
     }
 }

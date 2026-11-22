@@ -225,6 +225,7 @@ struct SidebarView: View {
         let home = AppPaths.home
         List {
             section("Special Folders", reorder: "special", rows: ((try? s?.specialFolders()) ?? []).map { SidebarRow(title: $0.title, path: $0.path, symbol: "bolt.fill") }, source: .special)
+            section("Projects", reorder: "projects", rows: model.projects.map { SidebarRow(title: $0.title, path: $0.path, symbol: "briefcase") }, source: .project)
             section("Favorites", reorder: "favorites", rows: ((try? s?.favorites()) ?? []).map { SidebarRow(title: $0.title, path: $0.path, symbol: "star") }, source: .favorite)
             section("Locations", rows: model.locationRows(), source: .sidebar)
             section("Config", rows: [".kiro", ".claude", ".aws", ".ssh"].map { SidebarRow(title: $0, path: "\(home)/\($0)", symbol: "gearshape") }, source: .sidebar)
@@ -265,6 +266,7 @@ struct SidebarView: View {
                         Button("Open in New Tab") { model.newTab(path: row.path) }
                         if title == "Favorites" { Button("Remove from Favorites") { model.removeFavorite(row.path) } }
                         if title == "Special Folders" { Button("Remove from Special Folders") { model.removeSpecialFolder(row.path) } }
+                        if title == "Projects" { Button("Remove from Projects") { model.removeProject(row.path) } }
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: row.path)]) }
                     }
                     if let loc = row.network { Divider(); Button("Remove from Locations") { model.removeNetworkLocation(loc.title) } }
@@ -276,6 +278,9 @@ struct SidebarView: View {
                 // Dropping a folder on the header adds it as a shortcut.
                 Text(title).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                     .folderDropTarget(model, path: "", mode: .addShortcut)
+            } else if title == "Projects" {
+                Text(title).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    .folderDropTarget(model, path: "", mode: .addProject)
             } else { Text(title) }
         }
     }
@@ -369,6 +374,7 @@ struct FileListView: View {
                 if ids.count == 1, let e = rows.first(where: { ids.contains($0.path) }), e.isDirectory {
                     Button("Add to Favorites") { try? model.store?.addFavorite(path: e.path); model.sidebarVersion += 1 }
                     Button("Add to Special Folders") { model.addSpecialFolder(e.path) }
+                    Button("Add to Projects") { model.addProject(e.path) }
                 }
                 Button("Quick Look") { model.quickLook() }
                 Button("Show in Finder") { model.showInFinder() }

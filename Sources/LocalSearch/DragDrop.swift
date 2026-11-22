@@ -22,7 +22,7 @@ enum DropZone { case before, into, after }
 /// Per-row drop target. (`ForEach` insertion drops and `.dropDestination` are avoided on purpose:
 /// they show the "+" copy cursor and an insertion line, and never fire on `List` rows.)
 struct FolderDropDelegate: DropDelegate {
-    enum Mode { case moveInto, shortcutOrMove, copyIntoCurrent, addShortcut }
+    enum Mode { case moveInto, shortcutOrMove, copyIntoCurrent, addShortcut, addProject }
     let model: AppModel
     let path: String
     let mode: Mode

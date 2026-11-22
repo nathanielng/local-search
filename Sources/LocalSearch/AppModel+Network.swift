@@ -48,6 +48,7 @@ extension AppModel {
 
     func reloadNetworkLocations() {
         networkLocations = NetworkLocation.load()
+        projects = Projects.load()
         sidebarVersion += 1
     }
 

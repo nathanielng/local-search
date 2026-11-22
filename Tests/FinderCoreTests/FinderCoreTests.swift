@@ -559,7 +559,7 @@ private func tempDir() throws -> String {
         #expect(Preview.kind(forName: "a.MD") == .markdown)
         #expect(Preview.kind(forName: "a.png") == .image)
         #expect(Preview.kind(forName: "a.swift") == .text)
-        if case .unsupported = Preview.kind(forName: "a.zip") {} else { Issue.record("zip should be unsupported") }
+        if case .unsupported = Preview.kind(forName: "a.dmg") {} else { Issue.record("dmg should be unsupported") }
     }
     @Test func binaryDetection() {
         #expect(Preview.looksBinary(Data([0x68, 0x00, 0x69])))
@@ -593,5 +593,86 @@ private func tempDir() throws -> String {
     @Test func markdownBlocks() {
         let b = MarkdownBlocks.parse("# Title\n\nSome *text*\nmore\n\n- one\n- two\n\n```\ncode\n```\n---\n")
         #expect(b == [.heading(1, "Title"), .paragraph("Some *text* more"), .bullet("one"), .bullet("two"), .code("code"), .rule])
+    }
+}
+
+@Suite struct MorePreviewTests {
+    @Test func newKinds() {
+        #expect(Preview.kind(forName: "a.json") == .json)
+        #expect(Preview.kind(forName: "a.csv") == .csv(","))
+        #expect(Preview.kind(forName: "a.tsv") == .csv("\t"))
+        #expect(Preview.kind(forName: "a.svg") == .svg)
+        #expect(Preview.kind(forName: "a.HTML") == .html)
+        #expect(Preview.kind(forName: "a.zip") == .archive)
+        #expect(Preview.kind(forName: "a.tar.gz") == .archive)
+    }
+    @Test func jsonPretty() {
+        #expect(JSONPreview.pretty("{\"b\":1,\"a\":[1,2]}")?.contains("\n  \"a\" : [") == true)
+        #expect(JSONPreview.pretty("not json") == nil)
+    }
+    @Test func csvQuotesAndLimits() {
+        let t = CSVPreview.parse("a,b\n\"x,1\",\"he said \"\"hi\"\"\"\n", delimiter: ",")
+        #expect(t.rows == [["a", "b"], ["x,1", "he said \"hi\""]])
+        let wide = CSVPreview.parse((1...30).map(String.init).joined(separator: ","), delimiter: ",")
+        #expect(wide.rows[0].count == 20 && wide.moreColumns)
+        let tall = CSVPreview.parse((1...80).map { "r\($0)" }.joined(separator: "\n"), delimiter: ",")
+        #expect(tall.rows.count == 50 && tall.moreRows)
+        #expect(CSVPreview.parse("a\tb\n", delimiter: "\t").rows == [["a", "b"]])
+    }
+    @Test func archiveListing() throws {
+        let dir = NSTemporaryDirectory() + "ar-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir + "/src", withIntermediateDirectories: true)
+        for i in 1...250 { FileManager.default.createFile(atPath: dir + "/src/f\(i).txt", contents: Data("x".utf8)) }
+        func run(_ exe: String, _ args: [String]) throws {
+            let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
+            p.currentDirectoryURL = URL(fileURLWithPath: dir); p.standardOutput = FileHandle.nullDevice
+            try p.run(); p.waitUntilExit()
+        }
+        try run("/usr/bin/zip", ["-qr", "a.zip", "src"])
+        try run("/usr/bin/tar", ["-czf", "a.tar.gz", "src"])
+        for name in ["a.zip", "a.tar.gz"] {
+            let r = try #require(Archive.list(path: dir + "/" + name))
+            #expect(r.entries.count == 200 && r.truncated)
+        }
+        #expect(Archive.list(path: dir + "/missing.zip") == nil)
+    }
+}
+
+@Suite struct ProjectsTests {
+    private func settings(_ json: String? = nil) -> URL {
+        let u = URL(fileURLWithPath: NSTemporaryDirectory() + "pj-\(UUID().uuidString)/settings.json")
+        if let json { try? FileManager.default.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true); try? json.write(to: u, atomically: true, encoding: .utf8) }
+        return u
+    }
+    @Test func loadExpandsTildeAndDefaultsTitle() {
+        let u = settings(#"{"projects":[{"title":"A","path":"~/x/a"},{"path":"/y/b"},{"title":"bad"}]}"#)
+        let p = Projects.load(from: u)
+        #expect(p.map(\.title) == ["A", "b"])
+        #expect(p[0].path == NSHomeDirectory() + "/x/a")
+    }
+    @Test func addRemoveKeepsOtherKeys() throws {
+        let u = settings(#"{"network_locations":[{"title":"n","kind":"smb"}]}"#)
+        #expect(Projects.add(path: "/p/one", at: u) == .added)
+        #expect(Projects.add(path: "/p/one", at: u) == .alreadyThere)
+        #expect(Projects.add(path: "/p/two", title: "Two", at: u) == .added)
+        #expect(Projects.load(from: u).map(\.title) == ["one", "Two"])
+        #expect(Projects.remove(path: "/p/one", at: u))
+        #expect(!Projects.remove(path: "/p/none", at: u))
+        let obj = try JSONSerialization.jsonObject(with: Data(contentsOf: u)) as? [String: Any]
+        #expect((obj?["network_locations"] as? [Any])?.count == 1)
+    }
+    @Test func limitOfTwenty() {
+        let u = settings()
+        for i in 1...20 { #expect(Projects.add(path: "/p/\(i)", at: u) == .added) }
+        #expect(Projects.add(path: "/p/21", at: u) == .full)
+    }
+    @Test func reorder() {
+        let u = settings()
+        for n in ["a", "b", "c"] { Projects.add(path: "/p/\(n)", at: u) }
+        #expect(Projects.move("/p/c", relativeTo: "/p/a", after: false, at: u))
+        #expect(Projects.load(from: u).map(\.title) == ["c", "a", "b"])
+        #expect(Projects.move("/p/c", relativeTo: "/p/b", after: true, at: u))
+        #expect(Projects.load(from: u).map(\.title) == ["a", "b", "c"])
+        #expect(!Projects.move("/p/c", relativeTo: "/p/c", after: true, at: u))
     }
 }
