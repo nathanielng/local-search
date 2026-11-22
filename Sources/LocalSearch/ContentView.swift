@@ -156,17 +156,31 @@ struct NavBar: View {
     @State private var text = ""
     @FocusState private var focused: Bool
     @State private var clipboardPath: String?
+    @AppStorage("showRecent") private var showRecent = false
+    @AppStorage("showRightPanel") private var showRightPanel = true
+
+    /// The history icon is "on" when the Recent Locations pane is actually visible.
+    private var recentShown: Bool { showRecent && showRightPanel }
+    private func toggleRecent() {
+        if recentShown { showRecent = false } else { showRecent = true; showRightPanel = true }
+    }
+    /// Navigation icons are a little larger than the other toolbar icons.
+    private func navIcon(_ name: String) -> some View {
+        Image(systemName: name).font(.system(size: 15, weight: .semibold)).frame(width: 22, height: 22)
+    }
 
     private func checkClipboard() { clipboardPath = PathText.looksLikePath(NSPasteboard.general.string(forType: .string)) }
 
     var body: some View {
         HStack(spacing: 6) {
-            Button { model.goBack() } label: { Image(systemName: "chevron.left") }
-                .disabled(model.current.back.isEmpty)
-            Button { model.goForward() } label: { Image(systemName: "chevron.right") }
-                .disabled(model.current.forward.isEmpty)
-            Button { model.goUp() } label: { Image(systemName: "arrow.up") }
-                .disabled(model.current.parentPath == nil)
+            Button { model.goBack() } label: { navIcon("chevron.left") }
+                .disabled(model.current.back.isEmpty).help("Back (⌘[)")
+            Button { model.goForward() } label: { navIcon("chevron.right") }
+                .disabled(model.current.forward.isEmpty).help("Forward (⌘])")
+            Button { model.goUp() } label: { navIcon("arrow.up") }
+                .disabled(model.current.parentPath == nil).help("Enclosing folder (⌘↑)")
+            Button { toggleRecent() } label: { navIcon(recentShown ? "clock.fill" : "clock") }
+                .help(recentShown ? "Hide Recent Locations (⌃⌘R)" : "Show Recent Locations (⌃⌘R)")
             TextField("Path", text: $text)
                 .textFieldStyle(.roundedBorder).focused($focused)
                 .onSubmit { model.navigate(text, .typed); focused = false }
