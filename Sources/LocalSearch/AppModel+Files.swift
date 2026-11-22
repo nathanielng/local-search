@@ -24,6 +24,7 @@ extension AppModel {
     private func create(_ make: (String) -> FileOpResult) {
         let r = make(current.path)
         guard let dst = r.dst else { warning = r.message; return }
+        pushUndo(UndoRecord(label: dst.hasSuffix(".txt") ? "New Text File" : "New Folder", steps: [.trash(dst)]))
         let id = selectedTabID
         Task {
             if let list = await Self.listAsync(current.path, hidden: showHidden), id == selectedTabID { entries = list }
@@ -41,8 +42,27 @@ extension AppModel {
     func commitRename(_ path: String, to name: String) {
         renamingPath = nil
         let r = FileOps.rename(path, to: name, store: store)
-        if r.result == "failed" || r.message == "invalid name" || r.message == "protected location" { warning = r.message } else { warning = nil }
-        if let dst = r.dst { setSelection([dst]) }
+        warning = nil
+        if r.result == "failed" || r.message == "invalid name" || r.message == "protected location" {
+            let old = (path as NSString).lastPathComponent
+            let reason: String
+            switch r.message {
+            case "invalid name": reason = "Names can't be empty or contain “/” or “:”."
+            case "protected location": reason = "“\(old)” is a system or home folder and can't be renamed."
+            default: reason = r.message ?? "Unknown error."
+            }
+            warning = "Couldn't rename “\(old)”: \(reason)"
+            let a = NSAlert()
+            a.alertStyle = .warning
+            a.messageText = "Couldn't rename “\(old)”"
+            a.informativeText = reason + (r.message?.hasSuffix("already exists") == true ? " Choose a different name." : "")
+            a.addButton(withTitle: "OK")
+            a.runModal()
+        }
+        if let dst = r.dst {
+            setSelection([dst])
+            pushUndo(UndoRecord(label: "Rename", steps: [.moveBack(from: dst, to: r.src)]))
+        }
         refresh(); historyVersion += 1
     }
 
@@ -86,6 +106,13 @@ extension AppModel {
         runJob(.copy, paths: urls.map { $0.standardized.path }, into: current.path)
     }
 
+    /// ⌥⌘V (Move Item Here): move the pasteboard's files into the current folder.
+    func moveFilesHere() {
+        let urls = (NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        guard !urls.isEmpty else { return }
+        runJob(.move, paths: urls.map { $0.standardized.path }, into: current.path)
+    }
+
     // MARK: Background jobs
 
     /// Copies ask what to do about name clashes (Keep Both / Replace / Skip / Stop); moves always keep both.
@@ -106,6 +133,7 @@ extension AppModel {
                 }
             }.value
             copyJob = nil
+            if let rec = UndoRecord.forJob(kind, results: results, conflict: onFinish) { pushUndo(rec) }
             let refused = results.filter { $0.result != "done" }
             if job.token.isCancelled { warning = "Stopped after \(results.count) of \(paths.count)" }
             else { warning = refused.isEmpty ? nil : "\(refused.count) item(s) not \(kind == .move ? "moved" : "copied"): \(refused[0].message ?? refused[0].result)" }

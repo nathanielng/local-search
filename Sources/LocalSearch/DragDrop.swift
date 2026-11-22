@@ -16,32 +16,53 @@ func loadFileURLs(_ providers: [NSItemProvider]) async -> [URL] {
     return urls
 }
 
+/// Where on a Favorites row a folder landed: the top/bottom edges are the gaps between rows.
+enum DropZone { case before, into, after }
+
 /// Per-row drop target. (`ForEach` insertion drops and `.dropDestination` are avoided on purpose:
 /// they show the "+" copy cursor and an insertion line, and never fire on `List` rows.)
 struct FolderDropDelegate: DropDelegate {
-    enum Mode { case moveInto, shortcutOrMove, copyIntoCurrent }
+    enum Mode { case moveInto, shortcutOrMove, copyIntoCurrent, addShortcut }
     let model: AppModel
     let path: String
     let mode: Mode
-    let setTargeted: (Bool) -> Void
+    var rowHeight: CGFloat = 0
+    let setState: (Bool, DropZone) -> Void
+
+    /// Folders being dragged (read from the drag pasteboard, which is readable while hovering).
+    static func draggedAreAllFolders() -> Bool {
+        let urls = (NSPasteboard(name: .drag).readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        return !urls.isEmpty && urls.allSatisfy {
+            var d: ObjCBool = false
+            return FileManager.default.fileExists(atPath: $0.path, isDirectory: &d) && d.boolValue
+        }
+    }
+
+    func zone(_ info: DropInfo) -> DropZone {
+        guard mode == .shortcutOrMove, rowHeight > 0, Self.draggedAreAllFolders() else { return .into }
+        let y = info.location.y
+        return y < rowHeight * 0.3 ? .before : (y > rowHeight * 0.7 ? .after : .into)
+    }
 
     func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.fileURL]) }
-    func dropEntered(info: DropInfo) { setTargeted(true) }
-    func dropExited(info: DropInfo) { setTargeted(false) }
+    func dropEntered(info: DropInfo) { setState(true, zone(info)) }
+    func dropExited(info: DropInfo) { setState(false, .into) }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        setState(true, zone(info))
         let option = NSEvent.modifierFlags.contains(.option)
         return DropProposal(operation: (mode == .copyIntoCurrent || option) ? .copy : .move)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        setTargeted(false)
+        let zone = zone(info)
+        setState(false, .into)
         let flags = NSEvent.modifierFlags
         let providers = info.itemProviders(for: [.fileURL])
         let model = model, path = path, mode = mode
         Task { @MainActor in
             let urls = await loadFileURLs(providers)
-            model.handleDrop(urls, onto: path, mode: mode, option: flags.contains(.option), command: flags.contains(.command))
+            model.handleDrop(urls, onto: path, mode: mode, zone: zone, option: flags.contains(.option), command: flags.contains(.command))
         }
         return true
     }
@@ -51,12 +72,23 @@ struct DropTargetModifier: ViewModifier {
     let model: AppModel
     let path: String
     let mode: FolderDropDelegate.Mode
-    @State private var targeted = false
+    @State private var id = UUID()
+    @State private var height: CGFloat = 0
 
     func body(content: Content) -> some View {
+        // One shared highlight, so a row whose "exited" callback was skipped can't keep a stale one.
+        let active = model.dropHighlight?.id == id
+        let zone = model.dropHighlight?.zone ?? .into
         content
-            .background(targeted ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 5))
-            .onDrop(of: [.fileURL], delegate: FolderDropDelegate(model: model, path: path, mode: mode) { targeted = $0 })
+            .background(active && zone == .into ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 5))
+            // A folder dropped in the gap between two favorites adds a shortcut there.
+            .overlay(alignment: zone == .before ? .top : .bottom) {
+                if active && zone != .into { Capsule().fill(Color.accentColor).frame(height: 3).padding(.horizontal, 6) }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            .onDrop(of: [.fileURL], delegate: FolderDropDelegate(model: model, path: path, mode: mode, rowHeight: height) { [id] on, z in
+                if on { model.setDropHighlight(id: id, zone: z) } else { model.clearDropHighlight(id: id) }
+            })
     }
 }
 
@@ -89,7 +121,7 @@ struct TabDropDelegate: DropDelegate {
             let providers = info.itemProviders(for: [.fileURL])
             let option = NSEvent.modifierFlags.contains(.option)
             Task { @MainActor in
-                model.handleDrop(await loadFileURLs(providers), onto: tab.path, mode: .moveInto, option: option, command: false)
+                model.handleDrop(await loadFileURLs(providers), onto: tab.path, mode: .moveInto, zone: .into, option: option, command: false)
             }
         } else if let p = info.itemProviders(for: [.plainText]).first {
             Task { @MainActor in
@@ -104,12 +136,13 @@ struct TabDropDelegate: DropDelegate {
 }
 
 /// Dragging files out of the list must hand real file URLs to other apps (Chromium/Electron apps such
-/// as Slack read them synchronously). SwiftUI's `TableRow.itemProvider` supplies data lazily, so we
-/// start the drag ourselves from the table's NSOutlineView and write the pasteboard eagerly.
-private struct EventBox: @unchecked Sendable { let event: NSEvent? }
-
+/// as Slack read them synchronously). SwiftUI's own row drag supplies data lazily (0 bytes), and NSTableView
+/// runs a private mouse-tracking loop on mouse-down that hides the drag from event monitors.
+/// So on a mouse-down over a row we take the click, track it ourselves, and either start a drag session
+/// (pointer moved more than 4 pt) or hand the click back to the table untouched.
 struct AppKitDragFix: NSViewRepresentable {
-    let selectedPaths: @MainActor () -> [String]
+    /// File paths in row order.
+    let paths: [String]
 
     func makeNSView(context: Context) -> NSView {
         let v = NSView(frame: .zero)
@@ -117,62 +150,76 @@ struct AppKitDragFix: NSViewRepresentable {
         context.coordinator.install()
         return v
     }
-    func updateNSView(_ nsView: NSView, context: Context) { context.coordinator.selectedPaths = selectedPaths }
-    func makeCoordinator() -> Coordinator { Coordinator(selectedPaths) }
+    func updateNSView(_ nsView: NSView, context: Context) { context.coordinator.paths = paths }
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     @MainActor
     final class Coordinator: NSObject, NSDraggingSource {
-        var selectedPaths: @MainActor () -> [String]
+        var paths: [String] = []
         weak var anchor: NSView?
         nonisolated(unsafe) private var monitor: Any?
-        private var downPoint: NSPoint?
-        private weak var downView: NSOutlineView?
+        private weak var table: NSOutlineView?
         private static let dragDistance: CGFloat = 4 // NSEvent has no startDragDistance on macOS
 
-        init(_ s: @escaping @MainActor () -> [String]) { selectedPaths = s }
         deinit { if let m = monitor { NSEvent.removeMonitor(m) } }
 
         func install() {
             guard monitor == nil else { return }
-            let mask: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
-            monitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] e in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
                 let box = EventBox(event: e) // monitors always run on the main thread
-                return MainActor.assumeIsolated { EventBox(event: self?.handle(box.event) ?? box.event) }.event
+                return MainActor.assumeIsolated { () -> EventBox in
+                    guard let me = self, let ev = box.event else { return box }
+                    return EventBox(event: me.mouseDown(ev)) // nil = we took the click
+                }.event
             }
         }
 
         /// The file list is the outline view with four columns.
         private func fileList(in window: NSWindow?) -> NSOutlineView? {
+            if let t = table, t.window === window { return t }
             func find(_ v: NSView) -> NSOutlineView? {
                 if let o = v as? NSOutlineView, o.tableColumns.count == 4 { return o }
                 for s in v.subviews { if let f = find(s) { return f } }
                 return nil
             }
-            return window?.contentView.flatMap(find)
+            table = window?.contentView.flatMap(find)
+            return table
         }
 
-        private func handle(_ e: NSEvent?) -> NSEvent? {
-            guard let e else { return nil }
-            switch e.type {
-            case .leftMouseDown:
-                downPoint = nil; downView = nil
-                guard let ov = fileList(in: e.window), e.window === anchor?.window else { return e }
-                let p = ov.convert(e.locationInWindow, from: nil)
-                if ov.bounds.contains(p), ov.row(at: p) >= 0 { downPoint = p; downView = ov }
-            case .leftMouseDragged:
-                guard let ov = downView, let start = downPoint else { return e }
-                let p = ov.convert(e.locationInWindow, from: nil)
-                guard hypot(p.x - start.x, p.y - start.y) > Self.dragDistance else { return e }
-                downPoint = nil; downView = nil
-                let paths = selectedPaths()
-                guard !paths.isEmpty else { return e }
-                begin(in: ov, paths: paths, event: e, at: p)
-                return nil // consume it so SwiftUI's own drag never starts
-            case .leftMouseUp:
-                downPoint = nil; downView = nil
-            default: break
+        /// Plain clicks are never consumed or replayed (that broke double-click and delayed the table).
+        /// While the button is held we only watch the pointer; if it moves past the drag distance we
+        /// take over and start a file drag, otherwise the click reaches the table untouched.
+        private func mouseDown(_ e: NSEvent) -> NSEvent? {
+            guard e.clickCount == 1, e.window === anchor?.window, let ov = fileList(in: e.window), let win = e.window else { return e }
+            let flags = e.modifierFlags.intersection([.shift, .command, .control])
+            guard flags.isEmpty else { return e } // range/extend selection clicks stay with the table
+            let p = ov.convert(e.locationInWindow, from: nil)
+            let row = ov.row(at: p)
+            guard ov.bounds.contains(p), row >= 0, row < paths.count else { return e }
+            // Clicks inside a text field (inline rename) belong to the field.
+            if let hit = win.contentView?.hitTest(e.locationInWindow), hit is NSText || hit is NSTextField { return e }
+
+            // Highlight right away (the table only sees the click after we hand it back on release).
+            if !ov.selectedRowIndexes.contains(row) { ov.selectRowIndexes([row], byExtendingSelection: false) }
+            let start = win.convertPoint(toScreen: e.locationInWindow)
+            let began = Date()
+            var dragged = false
+            while NSEvent.pressedMouseButtons & 1 != 0 {
+                let now = NSEvent.mouseLocation
+                if hypot(now.x - start.x, now.y - start.y) > Self.dragDistance { dragged = true; break }
+                if Date().timeIntervalSince(began) > 30 { break }
+                usleep(3000)
             }
-            return e
+            guard dragged else { return e }
+            // Use the newest pending drag event for the session (older ones are moot).
+            var drag: NSEvent?
+            while let n = NSApp.nextEvent(matching: .leftMouseDragged, until: Date(timeIntervalSinceNow: 0.02),
+                                          inMode: .eventTracking, dequeue: true) { drag = n }
+            guard let drag else { return e }
+            if !ov.selectedRowIndexes.contains(row) { ov.selectRowIndexes([row], byExtendingSelection: false) }
+            let files = ov.selectedRowIndexes.filter { $0 < paths.count }.map { paths[$0] }
+            begin(in: ov, paths: files, event: drag, at: ov.convert(drag.locationInWindow, from: nil))
+            return nil
         }
 
         private func begin(in view: NSView, paths: [String], event: NSEvent, at p: NSPoint) {
@@ -195,3 +242,5 @@ struct AppKitDragFix: NSViewRepresentable {
         }
     }
 }
+
+private struct EventBox: @unchecked Sendable { let event: NSEvent? }

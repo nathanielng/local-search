@@ -199,6 +199,26 @@ public final class FinderStore: @unchecked Sendable {
         return true
     }
 
+    /// Add a favorite right before `before`, right after `after`, or at the end. An existing favorite is left where it is.
+    @discardableResult
+    public func insertFavorite(path: String, after: String?, before: String? = nil, title: String? = nil) throws -> Bool {
+        let items = try favorites()
+        guard !items.contains(where: { $0.path == path }) else { return true }
+        guard items.count < Self.sidebarLimit else { return false }
+        var order = items.map { ($0.path, $0.title) }
+        let new = (path, title ?? (path as NSString).lastPathComponent)
+        if let b = before, let i = order.firstIndex(where: { $0.0 == b }) { order.insert(new, at: i) }
+        else if let a = after, let i = order.firstIndex(where: { $0.0 == a }) { order.insert(new, at: i + 1) }
+        else { order.append(new) }
+        try db.transaction {
+            try db.exec("DELETE FROM favorites")
+            for (i, o) in order.enumerated() {
+                try db.exec("INSERT INTO favorites(path,title,position) VALUES(?,?,?)", [.text(o.0), .text(o.1), .int(Int64(i))])
+            }
+        }
+        return true
+    }
+
     public func removeFavorite(path: String) throws { try db.exec("DELETE FROM favorites WHERE path=?", [.text(path)]) }
 
     public func isFavorite(_ path: String) -> Bool {

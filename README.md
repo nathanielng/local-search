@@ -37,6 +37,9 @@ Each rebuild changes the ad-hoc signature, so macOS may ask for privacy permissi
   (Keep Both naming). A folder dropped on Favorites becomes a shortcut (⌘ moves it in). Dropping on the
   file list copies into the current folder. Dragging out of the list writes real file URLs so other apps,
   including Slack, accept them.
+- **Favorites:** drop a folder in the gap between two favorites (blue line) to add a shortcut there; right-click to remove.
+- **Undo (⌘Z)** for moves, copies, renames, new items and Move to Trash. Copy/Paste with Keep Both / Replace / Skip,
+  ⌥⌘V Move Item Here, Quick Look on Space, inline rename, and the open folder refreshes when it changes on disk.
 - **History window (⌘Y):** Timeline, Folders, Files Opened, File Operations, Commands. Search, CSV export
   (UTC and local time), Clear, delete entries, "Delete all visits to <folder>". Retention is in Settings.
 

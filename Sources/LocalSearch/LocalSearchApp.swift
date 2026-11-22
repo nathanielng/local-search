@@ -32,11 +32,19 @@ struct AppCommands: Commands {
             Button("Move to Trash") { model.trashSelection() }.keyboardShortcut(.delete, modifiers: .command)
             Button("Show in Finder") { model.showInFinder() }.keyboardShortcut("r", modifiers: [.command, .option])
         }
+        // Undo reverses file operations unless a text field is being edited.
+        CommandGroup(replacing: .undoRedo) {
+            Button(model.undoLabel.map { "Undo \($0)" } ?? "Undo") {
+                if editingText { NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) } else { model.undo() }
+            }.keyboardShortcut("z").disabled(model.undoLabel == nil && !editingText)
+            Button("Redo") { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) }.keyboardShortcut("z", modifiers: [.command, .shift])
+        }
         // Copy/Paste act on files unless a text field is being edited.
         CommandGroup(replacing: .pasteboard) {
             Button("Cut") { NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil) }.keyboardShortcut("x")
             Button("Copy") { if editingText { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) } else { model.copyFiles() } }.keyboardShortcut("c")
             Button("Paste") { if editingText { NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) } else { model.pasteFiles() } }.keyboardShortcut("v")
+            Button("Move Item Here") { model.moveFilesHere() }.keyboardShortcut("v", modifiers: [.command, .option])
             Button("Select All") { NSApp.sendAction(#selector(NSResponder.selectAll(_:)), to: nil, from: nil) }.keyboardShortcut("a")
             Divider()
             Button("Copy Paths") { model.copyPaths() }.keyboardShortcut("c", modifiers: [.command, .option])

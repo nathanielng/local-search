@@ -22,8 +22,14 @@ struct ContentView: View {
                     }.padding(6)
                 }
                 if let w = model.warning {
-                    Text(w).font(.caption).padding(4).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.yellow.opacity(0.25))
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text(w).font(.callout).lineLimit(2)
+                        Spacer()
+                        Button { model.warning = nil } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain)
+                    }
+                    .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.yellow.opacity(0.25))
                 }
             }
             .frame(minWidth: 480)
@@ -117,11 +123,29 @@ struct SidebarView: View {
         })) {
             ForEach(items.prefix(FinderStore.sidebarLimit), id: \.1) { item in
                 let exists = FileManager.default.fileExists(atPath: item.1)
-                Button { model.navigate(item.1, source) } label: { Label(item.0, systemImage: item.2) }
-                    .buttonStyle(.plain).opacity(exists ? 1 : 0.4)
-                    .folderDropTarget(model, path: item.1, mode: title == "Favorites" ? .shortcutOrMove : .moveInto)
+                Button { model.navigate(item.1, source) } label: {
+                    // The whole row (no gaps) is clickable and a drop target.
+                    Label(item.0, systemImage: item.2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 5).padding(.horizontal, 10)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).opacity(exists ? 1 : 0.4)
+                .folderDropTarget(model, path: item.1, mode: title == "Favorites" ? .shortcutOrMove : .moveInto)
+                .listRowInsets(EdgeInsets())
+                .contextMenu {
+                    Button("Open in New Tab") { model.newTab(path: item.1) }
+                    if title == "Favorites" { Button("Remove from Favorites") { model.removeFavorite(item.1) } }
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.1)]) }
+                }
             }
-        } header: { Text(title) }
+        } header: {
+            if title == "Favorites" {
+                // Dropping a folder on the header adds it as a shortcut.
+                Text(title).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    .folderDropTarget(model, path: "", mode: .addShortcut)
+            } else { Text(title) }
+        }
     }
 }
 
@@ -139,8 +163,11 @@ struct FileListView: View {
                         RenameField(initial: e.name, isDirectory: e.isDirectory,
                                     onCommit: { model.commitRename(e.path, to: $0) }, onCancel: { model.renamingPath = nil })
                     } else { Text(e.name).lineLimit(1) }
+                    Spacer(minLength: 0)
                     if e.isOnlineOnly { Image(systemName: "icloud").font(.caption).foregroundStyle(.secondary) }
                 }
+                .contentShape(Rectangle())
+                .modifier(FolderRowDrop(model: model, entry: e))
             }
             TableColumn("Added or Modified") { e in
                 Text(e.addedOrModified.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(.secondary)
@@ -151,8 +178,8 @@ struct FileListView: View {
             TableColumn("Kind") { e in Text(e.kind).foregroundStyle(.secondary).lineLimit(1) }.width(min: 80, ideal: 120)
         }
         .font(.system(size: model.textSize))
-        .background(AppKitDragFix(selectedPaths: { Array(model.selection) }))
-        .onDrop(of: [.fileURL], delegate: FolderDropDelegate(model: model, path: model.current.path, mode: .copyIntoCurrent) { _ in })
+        .background(AppKitDragFix(paths: rows.map(\.path)))
+        .onDrop(of: [.fileURL], delegate: FolderDropDelegate(model: model, path: model.current.path, mode: .copyIntoCurrent) { _, _ in })
         .contextMenu(forSelectionType: String.self) { ids in
             if !ids.isEmpty {
                 if ids.count == 1 { Button("Rename") { model.renamingPath = ids.first } }
@@ -185,5 +212,14 @@ struct FileListView: View {
             }
         } label: { Image(systemName: "arrow.up.arrow.down") }
             .menuStyle(.borderlessButton).frame(width: 30).padding(4)
+    }
+}
+
+/// Folders in the list accept drops (moved in; ⌥ copies), like Finder.
+struct FolderRowDrop: ViewModifier {
+    let model: AppModel
+    let entry: FileEntry
+    func body(content: Content) -> some View {
+        if entry.isDirectory { content.folderDropTarget(model, path: entry.path) } else { content }
     }
 }

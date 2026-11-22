@@ -75,6 +75,18 @@ private func tempStore() throws -> FinderStore {
         for i in 0..<40 { try s.addFavorite(path: "/f\(i)") }
         #expect(try s.favorites().count == FinderStore.sidebarLimit)
     }
+    @Test func insertFavoriteAfter() throws {
+        let s = try tempStore()
+        try s.insertFavorite(path: "/new", after: "\(AppPaths.home)/Documents")
+        let paths = try s.favorites().map(\.path)
+        #expect(paths.firstIndex(of: "/new") == (paths.firstIndex(of: "\(AppPaths.home)/Documents") ?? -2) + 1)
+        try s.insertFavorite(path: "/first", after: nil, before: try s.favorites()[0].path)
+        #expect(try s.favorites().first?.path == "/first")
+        try s.insertFavorite(path: "/end", after: nil)
+        #expect(try s.favorites().last?.path == "/end")
+        try s.insertFavorite(path: "/new", after: nil) // existing stays put
+        #expect(try s.favorites().filter { $0.path == "/new" }.count == 1)
+    }
     @Test func schemaVersion() throws {
         let s = try tempStore()
         #expect(try s.db.query("PRAGMA user_version").first?["user_version"]?.int == 6)
@@ -220,5 +232,46 @@ private func tempDir() throws -> String {
         #expect(out.text.hasPrefix("aaa") && out.text.hasSuffix("[truncated at 200 KB]"))
         #expect(SecretGuard.isSecretPath("/x/.ssh/config") && SecretGuard.isSecretPath("/x/server.pem"))
         #expect(!SecretGuard.isSecretPath("/x/readme.md") && !SecretGuard.isBinary(Data("héllo".utf8)))
+    }
+}
+
+@Suite struct UndoTests {
+    @Test func undoMoveAndCopy() throws {
+        let a = try tempDir(), b = try tempDir()
+        FileManager.default.createFile(atPath: a + "/f.txt", contents: Data("x".utf8))
+        let mv = FileOps.perform(.move, sources: [a + "/f.txt"], into: b, store: nil)
+        let rec = try #require(UndoRecord.forJob(.move, results: mv, conflict: .keepBoth))
+        #expect(FileOps.undo(rec, store: nil)[0].result == "done")
+        #expect(FileManager.default.fileExists(atPath: a + "/f.txt") && !FileManager.default.fileExists(atPath: b + "/f.txt"))
+        let cp = FileOps.perform(.copy, sources: [a + "/f.txt"], into: b, store: nil)
+        FileOps.undo(try #require(UndoRecord.forJob(.copy, results: cp, conflict: .keepBoth)), store: nil)
+        #expect(!FileManager.default.fileExists(atPath: b + "/f.txt") && FileManager.default.fileExists(atPath: a + "/f.txt"))
+        #expect(UndoRecord.forJob(.copy, results: cp, conflict: .replace) == nil)
+    }
+    @Test func undoRenameIncludingCaseOnly() throws {
+        let d = try tempDir()
+        FileManager.default.createFile(atPath: d + "/a.txt", contents: Data())
+        for new in ["b.txt", "B.txt"] {
+            let old = try FileManager.default.contentsOfDirectory(atPath: d)[0]
+            let r = FileOps.rename(d + "/" + old, to: new, store: nil)
+            FileOps.undo(UndoRecord(label: "Rename", steps: [.moveBack(from: r.dst!, to: r.src)]), store: nil)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: d) == [old])
+        }
+    }
+    @Test func undoTrashRestores() throws {
+        let s = try tempStore(), d = try tempDir()
+        try Data("keep".utf8).write(to: URL(fileURLWithPath: d + "/t-\(UUID().uuidString).txt"))
+        let p = d + "/" + (try FileManager.default.contentsOfDirectory(atPath: d)[0])
+        let (rec, res) = FileOps.trash([p], store: s)
+        #expect(res[0].result == "done" && !FileManager.default.fileExists(atPath: p))
+        #expect(FileOps.undo(try #require(rec), store: s)[0].result == "done")
+        #expect(try String(contentsOfFile: p, encoding: .utf8) == "keep")
+    }
+    @Test func undoNeverOverwrites() throws {
+        let d = try tempDir()
+        FileManager.default.createFile(atPath: d + "/new.txt", contents: Data())
+        FileManager.default.createFile(atPath: d + "/orig.txt", contents: Data())
+        let r = FileOps.undo(UndoRecord(label: "Move", steps: [.moveBack(from: d + "/new.txt", to: d + "/orig.txt")]), store: nil)
+        #expect(r[0].result == "failed" && r[0].message?.contains("already exists") == true)
     }
 }

@@ -19,6 +19,11 @@ final class AppModel {
     var historyVersion = 0 // bump to refresh the History window
     var renamingPath: String?
     var copyJob: CopyJob?
+    var undoStack: [UndoRecord] = []
+    var dropHighlight: (id: UUID, zone: DropZone)?
+    @ObservationIgnored private var highlightWatch: Task<Void, Never>?
+    @ObservationIgnored let watcher = FolderWatcher()
+    var undoLabel: String? { undoStack.last?.label }
     var retentionDays = 0 { didSet { store?.setKV("retention_days", String(retentionDays)) } }
 
     init() {
@@ -67,6 +72,11 @@ final class AppModel {
 
     // MARK: Loading and navigation
 
+    /// Explains an unreadable folder. A rebuilt app has a new ad-hoc signature, so macOS may ask for access again.
+    nonisolated static func accessHint(_ path: String) -> String {
+        "Can't read \((path as NSString).abbreviatingWithTildeInPath). If macOS asked for folder access, allow it in System Settings › Privacy & Security › Files and Folders (or Full Disk Access). A rebuilt app counts as a new app."
+    }
+
     nonisolated static func listAsync(_ path: String, hidden: Bool) async -> [FileEntry]? {
         await Task.detached { try? FileEntry.list(path, showHidden: hidden) }.value
     }
@@ -78,6 +88,7 @@ final class AppModel {
         let fallback = nearestExistingFolder(tabs[i].path)
         Task {
             let list = await Self.listAsync(fallback, hidden: showHidden)
+            if list == nil { warning = Self.accessHint(fallback) }
             guard let j = tabs.firstIndex(where: { $0.id == id }) else { return }
             if fallback != tabs[j].path { tabs[j].commit(to: fallback, source: .restore) }
             if id == selectedTabID, let list { entries = list; selection = Set(tabs[j].selection) }
@@ -93,7 +104,7 @@ final class AppModel {
         let path = (path as NSString).expandingTildeInPath
         Task {
             guard let list = await Self.listAsync(path, hidden: showHidden) else {
-                warning = "Can't open \(path)"; return
+                warning = Self.accessHint(path); return
             }
             guard let j = tabs.firstIndex(where: { $0.id == id }) else { return }
             let changed = tabs[j].path != path
@@ -202,7 +213,15 @@ final class AppModel {
         if let i = tabIndex { tabs[i].selection = s.map { ($0 as NSString).lastPathComponent }; persist() }
     }
 
-    func persist() { try? store?.saveTabs(tabs, selected: selectedTabID); historyVersion += 1 }
+    func persist() {
+        try? store?.saveTabs(tabs, selected: selectedTabID)
+        historyVersion += 1
+        // Follow the visible folder so changes made elsewhere (a terminal, another app) show up.
+        watcher.watch(current.path) { [weak self] in
+            guard let self, self.renamingPath == nil else { return }
+            self.refresh()
+        }
+    }
 
     func toggleHidden() {
         showHidden.toggle()
@@ -220,19 +239,43 @@ final class AppModel {
     // MARK: Drag and drop
 
     /// Moving is the default; ⌥ copies. Dropping on the file list copies into the current folder.
-    func handleDrop(_ urls: [URL], onto folder: String, mode: FolderDropDelegate.Mode, option: Bool, command: Bool) {
+    func handleDrop(_ urls: [URL], onto folder: String, mode: FolderDropDelegate.Mode, zone: DropZone = .into, option: Bool, command: Bool) {
         var paths = urls.map { $0.standardized.path }
         guard !paths.isEmpty, let store else { return }
         // A folder dropped on a sidebar row becomes a shortcut; ⌘ moves it in instead.
-        if mode == .shortcutOrMove && !command && urls.allSatisfy({ $0.hasDirectoryPath }) {
-            for p in paths where (try? store.addFavorite(path: p)) == false { warning = "Favorites is full (20 items)"; break }
-            sidebarVersion += 1
+        func isDir(_ p: String) -> Bool { var d: ObjCBool = false; return FileManager.default.fileExists(atPath: p, isDirectory: &d) && d.boolValue }
+        if mode == .addShortcut {
+            let dirs = paths.filter(isDir)
+            if dirs.isEmpty { warning = "Only folders can be added to Favorites"; return }
+            addShortcuts(dirs, after: nil, before: nil)
+            return
+        }
+        // On a Favorites row, a folder dropped in the gap (top/bottom edge) becomes a shortcut there;
+        // dropped on the middle of the row it is moved into that favorite like any other item.
+        if mode == .shortcutOrMove && zone != .into && paths.allSatisfy(isDir) {
+            addShortcuts(paths, after: zone == .after ? folder : nil, before: zone == .before ? folder : nil)
             return
         }
         let kind: FileOpKind = (mode == .copyIntoCurrent || option) ? .copy : .move
         if mode == .copyIntoCurrent { paths.removeAll { ($0 as NSString).deletingLastPathComponent == folder } }
         guard !paths.isEmpty else { return }
         runJob(kind, paths: paths, into: folder)
+    }
+
+    /// New shortcuts go right after the row they were dropped on (the end when dropped on the header).
+    private func addShortcuts(_ folders: [String], after: String?, before: String?) {
+        guard let store else { return }
+        var anchor = after, upcoming = before
+        for p in folders {
+            if (try? store.insertFavorite(path: p, after: anchor, before: upcoming)) == false { warning = "Favorites is full (20 items)"; break }
+            anchor = p; upcoming = nil
+        }
+        sidebarVersion += 1
+    }
+
+    func removeFavorite(_ path: String) {
+        try? store?.removeFavorite(path: path)
+        sidebarVersion += 1
     }
 
     func openFolder(_ path: String, newTab: Bool) {
@@ -242,11 +285,46 @@ final class AppModel {
     // MARK: File operations
 
     func trash(_ paths: [String]) {
-        for p in paths {
-            do { try FileManager.default.trashItem(at: URL(fileURLWithPath: p), resultingItemURL: nil); logOp("trash", src: p, dst: nil, ok: true) }
-            catch { warning = error.localizedDescription; logOp("trash", src: p, dst: nil, ok: false) }
+        let (rec, results) = FileOps.trash(paths, store: store)
+        if let rec { pushUndo(rec) }
+        if let f = results.first(where: { $0.result == "failed" }) { warning = f.message }
+        refresh(); historyVersion += 1
+    }
+
+    // MARK: Drop highlight
+
+    func setDropHighlight(id: UUID, zone: DropZone) {
+        if dropHighlight?.id != id || dropHighlight?.zone != zone { dropHighlight = (id, zone) }
+        guard highlightWatch == nil else { return }
+        // Safety net: when the mouse button is up the drag is over, whatever callbacks were skipped.
+        highlightWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard let self else { return }
+                if NSEvent.pressedMouseButtons & 1 == 0 { self.dropHighlight = nil }
+                if self.dropHighlight == nil { self.highlightWatch = nil; return }
+            }
         }
-        refresh()
+    }
+
+    func clearDropHighlight(id: UUID) {
+        if dropHighlight?.id == id { dropHighlight = nil }
+    }
+
+    func pushUndo(_ r: UndoRecord) {
+        undoStack.append(r)
+        if undoStack.count > 50 { undoStack.removeFirst(undoStack.count - 50) }
+    }
+
+    /// ⌘Z for file operations. Never overwrites; a step fails if the original name is taken again.
+    func undo() {
+        guard let rec = undoStack.popLast(), let store else { return }
+        Task {
+            let results = await Task.detached { FileOps.undo(rec, store: store) }.value
+            let failed = results.filter { $0.result != "done" }
+            warning = failed.isEmpty ? nil : "Couldn't fully undo \(rec.label): \(failed[0].message ?? failed[0].result)"
+            refresh(); historyVersion += 1
+        }
     }
 
     private func logOp(_ op: String, src: String?, dst: String?, ok: Bool) {
