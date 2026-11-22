@@ -60,6 +60,7 @@ final class AppModel {
     var sortedEntries: [FileEntry] {
         let t = current
         let asc = t.sortAscending
+        if t.sortKey == "none" { return entries } // no sorting: the order the folder lists in
         let items = entries.sorted { a, b in
             if a.isDirectory != b.isDirectory && t.sortKey == "name" { return a.isDirectory }
             let r: Bool
@@ -222,13 +223,24 @@ final class AppModel {
 
     // MARK: State
 
+    /// Set both the column and the direction (what clicking a column header does).
+    func setSort(key: String, ascending: Bool) {
+        guard let i = tabIndex else { return }
+        tabs[i].sortKey = key; tabs[i].sortAscending = ascending
+        persist()
+    }
+
+    /// Remove all sorting.
+    func clearSort() { setSort(key: "none", ascending: true) }
+
     func setSort(key: String) {
         guard let i = tabIndex else { return }
         if tabs[i].sortKey == key { tabs[i].sortAscending.toggle() } else { tabs[i].sortKey = key; tabs[i].sortAscending = true }
         persist()
     }
 
-    func setSelection(_ s: Set<String>) {
+    func setSelection(_ all: Set<String>) {
+        let s = all.filter { !$0.hasPrefix("hdr:") } // group headers can't be selected
         selection = s
         if let i = tabIndex { tabs[i].selection = s.map { ($0 as NSString).lastPathComponent }; persist() }
     }

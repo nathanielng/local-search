@@ -257,7 +257,7 @@ struct AppKitDragFix: NSViewRepresentable {
             guard flags.isEmpty else { return e } // range/extend selection clicks stay with the table
             let p = ov.convert(e.locationInWindow, from: nil)
             let row = ov.row(at: p)
-            guard ov.bounds.contains(p), row >= 0, row < paths.count else { return e }
+            guard ov.bounds.contains(p), row >= 0, row < paths.count, !paths[row].isEmpty else { return e }
             // Clicks inside a text field (inline rename) belong to the field.
             if let hit = win.contentView?.hitTest(e.locationInWindow), hit is NSText || hit is NSTextField { return e }
 

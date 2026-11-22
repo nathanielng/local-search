@@ -37,8 +37,15 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 - Network: Add SSH Location menu; Remove from Locations; Remove from Special Folders
 - Dropping a file onto a tab; the signed build keeps folder permissions across rebuilds (no re-grant needed)
 - Slack drag-out skipped (not installed); WhatsApp works, Slack should too
+- Column headers: click to sort, click again to reverse, chevron shows direction; the arrow button at the top right removes all sorting
+- Group by Date (⌃⌘G, View menu): headers show when sorted by Added or Modified
 
 ## Not yet tested by hand
+
+- Click a column header to sort by it and click again to reverse (checked by the assistant on Size); the arrow button at the top right removes all sorting
+
+- Multi-row tabs (up to 3 rows, then scrolls): wrapping checked by the assistant with 18 tabs; reordering and drop targets across rows need your test
+- Group by Date (⌃⌘G, View menu): headers appear in the list when sorted by date; headers can't be selected, dragged or opened
 
 - Quick Find magnifier button; partial-name search (`mo.md` shows memo.md with the match highlighted); SMB 15-second timeout. Network folders, original item: the Locations section lists mounted external/network volumes (right-click › Eject / Disconnect); a configured SMB server is dimmed until connected, clicking mounts it (sign-in dialog if needed) and opens it; Disconnect unmounts. SSH locations need FUSE-T + sshfs and key login (docs/NETWORK.md)
 - Quick Find: the matched part of a file name is shown in bold accent colour (new), and the "No matches" hint about macOS privacy; ⌘↩ (new tab / open file); revealing a file selects it in its folder

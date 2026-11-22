@@ -49,21 +49,60 @@ struct ContentView: View {
 struct TabBar: View {
     @Environment(AppModel.self) private var model
     @AppStorage("showSidebar") private var showSidebar = true
+    @State private var contentHeight: CGFloat = 36
+    static let rowHeight: CGFloat = 28
+    static let maxRows: CGFloat = 3
+    private var maxHeight: CGFloat { Self.rowHeight * Self.maxRows + 2 * (Self.maxRows - 1) + 8 }
+
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             Button { showSidebar.toggle() } label: { Image(systemName: "sidebar.left") }
-                .buttonStyle(.plain).padding(.leading, 10).help("Show or hide the sidebar (⌃⌘S)")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
+                .buttonStyle(.plain).padding(.leading, 10).padding(.top, 10).help("Show or hide the sidebar (⌃⌘S)")
+            // Tabs wrap onto up to three rows; beyond that the area scrolls.
+            ScrollView(.vertical, showsIndicators: false) {
+                TabFlowLayout {
                     ForEach(model.tabs) { tab in TabButton(tab: tab) }
                     // Dropping a tab here moves it to the very end.
-                    Color.clear.frame(width: 60, height: 28).contentShape(Rectangle())
+                    Color.clear.frame(width: 24, height: Self.rowHeight).contentShape(Rectangle())
                         .onDrop(of: [.plainText], delegate: TabEndDropDelegate(model: model))
-                }.padding(4)
+                }
+                .padding(4)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
-            Button { model.newTab() } label: { Image(systemName: "plus") }.buttonStyle(.plain).padding(.leading, 8)
+            .frame(height: min(contentHeight, maxHeight))
+            Button { model.newTab() } label: { Image(systemName: "plus") }.buttonStyle(.plain).padding(.leading, 8).padding(.top, 10)
             Button { model.showQuickFind = true } label: { Image(systemName: "magnifyingglass") }
-                .buttonStyle(.plain).padding(.horizontal, 10).help("Quick Find (⌘F)")
+                .buttonStyle(.plain).padding(.horizontal, 10).padding(.top, 10).help("Quick Find (⌘F)")
+        }
+    }
+}
+
+/// Lays tabs out left to right and wraps onto the next row when the width runs out.
+struct TabFlowLayout: Layout {
+    var spacing: CGFloat = 2
+    var rowSpacing: CGFloat = 2
+
+    private func frames(width: CGFloat, _ subviews: Subviews) -> (frames: [CGRect], height: CGFloat) {
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        var out: [CGRect] = []
+        for s in subviews {
+            let size = s.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > width { x = 0; y += rowH + rowSpacing; rowH = 0 }
+            out.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
+            x += size.width + spacing
+            rowH = max(rowH, size.height)
+        }
+        return (out, y + rowH)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? 800
+        return CGSize(width: w, height: frames(width: w, subviews).height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (s, f) in zip(subviews, frames(width: bounds.width, subviews).frames) {
+            s.place(at: CGPoint(x: bounds.minX + f.minX, y: bounds.minY + f.minY), proposal: ProposedViewSize(f.size))
         }
     }
 }
@@ -77,7 +116,7 @@ struct TabButton: View {
         let selected = tab.id == model.selectedTabID
         let mark = model.tabDropMark?.tab == tab.id ? model.tabDropMark : nil
         HStack(spacing: 4) {
-            Text(model.titleFor(tab)).lineLimit(1)
+            Text(model.titleFor(tab)).lineLimit(1).frame(maxWidth: 170, alignment: .leading).fixedSize(horizontal: true, vertical: false)
             Button { model.closeTab(tab.id) } label: { Image(systemName: "xmark").font(.caption2) }
                 .buttonStyle(.plain).opacity(model.tabs.count > 1 ? 0.6 : 0)
         }
@@ -208,12 +247,29 @@ struct OptionalFolderDrop: ViewModifier {
 
 struct FileListView: View {
     @Environment(AppModel.self) private var model
+    @AppStorage("groupByDate") private var groupByDate = false
+
+    /// With Group by Date on and the list sorted by date, a header row precedes each period.
+    private var listRows: [FileEntry] {
+        let items = model.sortedEntries
+        guard groupByDate, model.current.sortKey == "date" else { return items }
+        var out: [FileEntry] = [], last = ""
+        for e in items {
+            let g = DateGroup.label(for: e.addedOrModified)
+            if g != last { out.append(.header(g)); last = g }
+            out.append(e)
+        }
+        return out
+    }
 
     var body: some View {
         @Bindable var m = model
-        let rows = model.sortedEntries
-        Table(rows, selection: Binding(get: { model.selection }, set: { model.setSelection($0) })) {
-            TableColumn("Name") { e in
+        let rows = listRows
+        Table(rows, selection: Binding(get: { model.selection }, set: { model.setSelection($0) }), sortOrder: sortOrder) {
+            TableColumn("Name", value: \.name) { e in
+                if e.isHeader {
+                    Text(e.name).font(.system(size: model.textSize, weight: .semibold)).foregroundStyle(.secondary)
+                } else {
                 HStack(spacing: 6) {
                     Image(nsImage: NSWorkspace.shared.icon(forFile: e.path)).resizable().frame(width: 16, height: 16)
                     if model.renamingPath == e.path {
@@ -225,17 +281,18 @@ struct FileListView: View {
                 }
                 .contentShape(Rectangle())
                 .modifier(FolderRowDrop(model: model, entry: e))
+                }
             }
-            TableColumn("Added or Modified") { e in
-                Text(e.addedOrModified.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(.secondary)
+            TableColumn("Added or Modified", value: \.addedOrModified) { e in
+                if !e.isHeader { Text(e.addedOrModified.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(.secondary) }
             }.width(min: 120, ideal: 150)
-            TableColumn("Size") { e in
-                Text(e.isDirectory ? "--" : ByteCountFormatter.string(fromByteCount: e.size, countStyle: .file)).foregroundStyle(.secondary)
+            TableColumn("Size", value: \.sizeKey) { e in
+                if !e.isHeader { Text(e.isDirectory ? "--" : ByteCountFormatter.string(fromByteCount: e.size, countStyle: .file)).foregroundStyle(.secondary) }
             }.width(min: 60, ideal: 80)
-            TableColumn("Kind") { e in Text(e.kind).foregroundStyle(.secondary).lineLimit(1) }.width(min: 80, ideal: 120)
+            TableColumn("Kind", value: \.kind) { e in if !e.isHeader { Text(e.kind).foregroundStyle(.secondary).lineLimit(1) } }.width(min: 80, ideal: 120)
         }
         .font(.system(size: model.textSize))
-        .background(AppKitDragFix(paths: rows.map(\.path)))
+        .background(AppKitDragFix(paths: rows.map { $0.isHeader ? "" : $0.path }))
         .onDrop(of: [.fileURL], delegate: FolderDropDelegate(model: model, path: model.current.path, mode: .copyIntoCurrent) { _, _ in })
         .contextMenu(forSelectionType: String.self) { ids in
             if !ids.isEmpty {
@@ -256,7 +313,7 @@ struct FileListView: View {
             Button("Paste") { model.pasteFiles() }
         } primaryAction: { ids in
             let cmd = NSEvent.modifierFlags.contains(.command)
-            for e in rows where ids.contains(e.path) { model.open(e, newTab: cmd) }
+            for e in rows where ids.contains(e.path) && !e.isHeader { model.open(e, newTab: cmd) }
         }
         .onKeyPress(.space) { model.quickLook(); return .handled }
         .onKeyPress(.return) {
@@ -266,13 +323,36 @@ struct FileListView: View {
         .overlay(alignment: .topTrailing) { sortMenu }
     }
 
-    private var sortMenu: some View {
-        Menu {
-            ForEach([("name", "Name"), ("date", "Added or Modified"), ("size", "Size"), ("kind", "Kind")], id: \.0) { k in
-                Button(k.1 + (model.current.sortKey == k.0 ? (model.current.sortAscending ? "  ↑" : "  ↓") : "")) { model.setSort(key: k.0) }
+    /// Clicking a column header sorts by it; clicking again reverses. The model owns the (per-tab, saved) order.
+    private var sortOrder: Binding<[KeyPathComparator<FileEntry>]> {
+        Binding(get: {
+            let order: SortOrder = model.current.sortAscending ? .forward : .reverse
+            switch model.current.sortKey {
+            case "name": return [KeyPathComparator(\.name, order: order)]
+            case "date": return [KeyPathComparator(\.addedOrModified, order: order)]
+            case "size": return [KeyPathComparator(\.sizeKey, order: order)]
+            case "kind": return [KeyPathComparator(\.kind, order: order)]
+            default: return []
             }
-        } label: { Image(systemName: "arrow.up.arrow.down") }
-            .menuStyle(.borderlessButton).frame(width: 30).padding(4)
+        }, set: { new in
+            guard let c = new.first else { model.clearSort(); return }
+            let key: String
+            switch c.keyPath {
+            case \FileEntry.name: key = "name"
+            case \FileEntry.addedOrModified: key = "date"
+            case \FileEntry.sizeKey: key = "size"
+            case \FileEntry.kind: key = "kind"
+            default: return
+            }
+            model.setSort(key: key, ascending: c.order == .forward)
+        })
+    }
+
+    private var sortMenu: some View {
+        Button { model.clearSort() } label: { Image(systemName: "arrow.up.arrow.down") }
+            .buttonStyle(.plain).padding(8)
+            .disabled(model.current.sortKey == "none")
+            .help("Remove sorting (show files in the folder's own order)")
     }
 }
 

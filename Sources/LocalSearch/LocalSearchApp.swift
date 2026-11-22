@@ -19,6 +19,7 @@ struct LocalSearchApp: App {
 struct AppCommands: Commands {
     let model: AppModel
     @AppStorage("showSidebar") private var showSidebar = true
+    @AppStorage("groupByDate") private var groupByDate = false
     @Environment(\.openWindow) private var openWindow
     private var editingText: Bool { NSApp.keyWindow?.firstResponder is NSText }
     var body: some Commands {
@@ -72,6 +73,14 @@ struct AppCommands: Commands {
         }
         CommandMenu("View") {
             Button(showSidebar ? "Hide Sidebar" : "Show Sidebar") { showSidebar.toggle() }.keyboardShortcut("s", modifiers: [.command, .control])
+            Button(groupByDate ? "Ungroup by Date" : "Group by Date") {
+                groupByDate.toggle()
+                // Headers only show when sorted by a date, newest first, so switch to that when turning grouping on.
+                if groupByDate {
+                    if model.current.sortKey != "date" { model.setSort(key: "date") }
+                    if model.current.sortAscending { model.setSort(key: "date") }
+                }
+            }.keyboardShortcut("g", modifiers: [.command, .control])
             Button("Show Hidden Files") { model.toggleHidden() }.keyboardShortcut(".", modifiers: [.command, .shift])
             Button("Bigger Text") { model.textSize = min(20, model.textSize + 1) }.keyboardShortcut("+")
             Button("Smaller Text") { model.textSize = max(10, model.textSize - 1) }.keyboardShortcut("-")

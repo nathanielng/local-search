@@ -473,3 +473,26 @@ private func tempDir() throws -> String {
         #expect(r.isEmpty)
     }
 }
+
+@Suite struct DateGroupTests {
+    @Test func bucketsFollowTheSpec() {
+        var cal = Calendar(identifier: .gregorian); cal.firstWeekday = 2
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let now = cal.date(from: DateComponents(year: 2026, month: 11, day: 25, hour: 15))! // a Wednesday
+        func d(_ y: Int, _ m: Int, _ day: Int, _ h: Int = 9) -> Date { cal.date(from: DateComponents(year: y, month: m, day: day, hour: h))! }
+        #expect(DateGroup.label(for: d(2026, 11, 25, 1), now: now, calendar: cal) == "Today")
+        #expect(DateGroup.label(for: d(2026, 11, 24, 23), now: now, calendar: cal) == "Yesterday")
+        #expect(DateGroup.label(for: d(2026, 11, 22), now: now, calendar: cal) == "Last 3 Days")
+        #expect(DateGroup.label(for: d(2026, 11, 21), now: now, calendar: cal) == "Earlier This Month") // Saturday, previous week
+        #expect(DateGroup.label(for: d(2026, 11, 3), now: now, calendar: cal) == "Earlier This Month")
+        #expect(DateGroup.label(for: d(2026, 6, 1), now: now, calendar: cal) == "Earlier This Year")
+        #expect(DateGroup.label(for: d(2025, 12, 31), now: now, calendar: cal) == "Before This Year")
+        #expect(DateGroup.label(for: d(2026, 12, 1), now: now, calendar: cal) == "Today") // future dates
+    }
+    @Test func earlierThisWeekIsReachable() {
+        var cal = Calendar(identifier: .gregorian); cal.firstWeekday = 2; cal.timeZone = TimeZone(identifier: "UTC")!
+        let now = cal.date(from: DateComponents(year: 2026, month: 11, day: 29, hour: 15))! // Sunday: week began Mon 23rd
+        let mon = cal.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 9))!
+        #expect(DateGroup.label(for: mon, now: now, calendar: cal) == "Earlier This Week")
+    }
+}

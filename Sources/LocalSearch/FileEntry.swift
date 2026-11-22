@@ -11,6 +11,12 @@ struct FileEntry: Identifiable, Hashable, Sendable {
     let added: Date
     let kind: String
     let isOnlineOnly: Bool
+    /// A section header row (Group by Date); never selectable, draggable or openable.
+    var isHeader = false
+
+    static func header(_ title: String) -> FileEntry {
+        FileEntry(path: "hdr:\(title)", name: title, isDirectory: false, size: 0, modified: .distantPast, added: .distantPast, kind: "", isOnlineOnly: false, isHeader: true)
+    }
 
     /// "Added or Modified": the later of the two.
     var addedOrModified: Date { max(modified, added) }
