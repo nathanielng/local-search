@@ -6,6 +6,16 @@ import Foundation
 /// `{{selection}}` all selected items, `{{file}}` the item (each item when `each` is set), `{{stem}}`, `{{ext}}`,
 /// `{{folder}}`, `{{out:Name}}` a file name that never overwrites (inside it `<stem>` and `<ext>` are the
 /// selected file's), and `{{ask:Label=default}}` a value the user types in the panel.
+/// A preconfigured alternative to an action: only what differs is listed, everything else comes from the action.
+public struct ActionVariant: Codable, Identifiable, Sendable, Equatable {
+    public var id: String
+    public var title: String
+    public var description: String?
+    public var command: String?
+    public var explain: [String]?
+    public var confirm: Bool?
+}
+
 public struct Action: Codable, Identifiable, Sendable, Equatable {
     public var id: String
     public var title: String
@@ -24,6 +34,9 @@ public struct Action: Codable, Identifiable, Sendable, Equatable {
     public var confirm: Bool?
     public var notInHome: Bool?
     public var results: Bool?
+    /// Small variations (other flags, other modes). The action itself is the first choice, labelled `baseLabel`.
+    public var variants: [ActionVariant]?
+    public var baseLabel: String?
 }
 
 public struct ActionFile: Codable, Sendable {
@@ -78,6 +91,20 @@ public enum Actions {
             try? fm.moveItem(at: target, to: bak)
         }
         return (try? bundledData.write(to: target, options: .atomic)) != nil
+    }
+
+    // MARK: Variants
+
+    /// The action with a variant's differences applied. An unknown or nil id gives the action itself.
+    public static func resolved(_ a: Action, variant id: String?) -> Action {
+        guard let id, let v = a.variants?.first(where: { $0.id == id }) else { return a }
+        var r = a
+        if let c = v.command { r.command = c }
+        if let d = v.description { r.description = d }
+        if let e = v.explain { r.explain = e }
+        if let c = v.confirm { r.confirm = c }
+        r.variants = nil
+        return r
     }
 
     // MARK: Shell quoting

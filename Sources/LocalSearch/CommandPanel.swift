@@ -8,6 +8,7 @@ struct CommandPanel: View {
     @AppStorage("showCommands") private var showCommands = false
     @AppStorage("commandPanelHeight") private var panelHeight = 300.0
     @State private var picked: Action?
+    @State private var variantID: String?
     @State private var asks: [String: String] = [:]
     @State private var command = ""
     @State private var edited = false
@@ -17,6 +18,15 @@ struct CommandPanel: View {
     @State private var confirming = false
 
     private var ctx: ActionContext { model.actionContext }
+    /// The picked action with its chosen variant applied.
+    private var active: Action? { picked.map { Actions.resolved($0, variant: variantID) } }
+    private static let variantsKey = "actionVariants"
+    private func remembered(_ id: String) -> String? { (UserDefaults.standard.dictionary(forKey: Self.variantsKey) as? [String: String])?[id] }
+    private func remember(_ id: String, variant: String?) {
+        var d = (UserDefaults.standard.dictionary(forKey: Self.variantsKey) as? [String: String]) ?? [:]
+        d[id] = variant
+        UserDefaults.standard.set(d, forKey: Self.variantsKey)
+    }
     private var groups: [String] { var seen: [String] = []; for a in model.actions where !seen.contains(a.group) { seen.append(a.group) }; return seen }
     private var running: Bool { model.commandRun?.running == true }
 
@@ -32,7 +42,7 @@ struct CommandPanel: View {
             badges(rows)
             Divider()
             editor
-            if showExplain, let a = picked, let lines = a.explain, !lines.isEmpty { explain(lines) }
+            if showExplain, let a = active, let lines = a.explain, !lines.isEmpty { explain(lines) }
             Divider()
             output
         }
@@ -106,7 +116,17 @@ struct CommandPanel: View {
 
     private var editor: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let a = picked {
+            if let base = picked, let vs = base.variants, !vs.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        Text("Variant").font(.caption).foregroundStyle(.secondary)
+                        chip(base.baseLabel ?? "Standard", on: variantID == nil) { setVariant(nil) }
+                            .help(base.description)
+                        ForEach(vs) { v in chip(v.title, on: variantID == v.id) { setVariant(v.id) }.help(v.description ?? base.description) }
+                    }
+                }
+            }
+            if let a = active {
                 let fields = Actions.asks(in: a.command)
                 if !fields.isEmpty {
                     HStack(spacing: 10) {
@@ -134,7 +154,7 @@ struct CommandPanel: View {
                         Button("Run") { run() }.keyboardShortcut(.return, modifiers: .command)
                             .disabled(command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    if let a = picked, a.explain?.isEmpty == false {
+                    if let a = active, a.explain?.isEmpty == false {
                         Button(showExplain ? "Hide" : "What this does") { showExplain.toggle() }.buttonStyle(.link).font(.caption)
                     }
                 }
@@ -152,7 +172,7 @@ struct CommandPanel: View {
 
     @ViewBuilder private var output: some View {
         if let run = model.commandRun {
-            OutputView(run: run, clickable: picked?.results == true)
+            OutputView(run: run, clickable: active?.results == true)
         } else {
             Text("Nothing runs until you press Run (⌘↩).").font(.caption).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -163,12 +183,19 @@ struct CommandPanel: View {
 
     private func pick(_ a: Action) {
         picked = a; asks = [:]; edited = false
+        let r = remembered(a.id)
+        variantID = (r != nil && a.variants?.contains { $0.id == r } == true) ? r : nil
         rerender()
     }
-    private func rerender() { if let a = picked { command = Actions.render(a, in: ctx, asks: asks) } }
+    private func setVariant(_ id: String?) {
+        variantID = id; asks = [:]; edited = false
+        if let p = picked { remember(p.id, variant: id) }
+        rerender()
+    }
+    private func rerender() { if let a = active { command = Actions.render(a, in: ctx, asks: asks) } }
     private func refreshIfUnedited() { if !edited { rerender() } }
     private func run() {
-        if picked?.confirm == true { confirming = true } else { model.runCommand(command) }
+        if active?.confirm == true { confirming = true } else { model.runCommand(command) }
     }
 }
 

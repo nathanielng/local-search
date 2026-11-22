@@ -1138,3 +1138,44 @@ private func tempDir() throws -> String {
         #expect(jc == 1 && jo.contains("doesn't look like"))
     }
 }
+
+@Suite struct ActionVariantTests {
+    private func bundled() throws -> ActionFile {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Resources/actions.json").standardized
+        return try #require(Actions.parse(try Data(contentsOf: url)).file)
+    }
+    @Test func resolveOverridesOnlyWhatDiffers() {
+        let a = Action(id: "z", title: "Z", group: "G", description: "base", command: "zip {{selection}}", explain: ["base"],
+                       needs: "some", variants: [ActionVariant(id: "v", title: "V", description: nil, command: "zip -9 {{selection}}", explain: nil, confirm: true)])
+        let r = Actions.resolved(a, variant: "v")
+        #expect(r.command == "zip -9 {{selection}}" && r.description == "base" && r.explain == ["base"] && r.confirm == true)
+        #expect(r.needs == "some" && r.variants == nil)
+        #expect(Actions.resolved(a, variant: nil) == a)
+        #expect(Actions.resolved(a, variant: "nope") == a)
+    }
+    @Test func variantsDecodeFromJSON() {
+        let json = #"{"version":1,"actions":[{"id":"a","title":"A","group":"G","description":"d","command":"ls","baseLabel":"Plain","variants":[{"id":"x","title":"X","command":"ls -l"}]}]}"#
+        let f = Actions.parse(Data(json.utf8)).file
+        #expect(f?.actions.first?.variants?.first?.command == "ls -l" && f?.actions.first?.baseLabel == "Plain")
+    }
+    @Test func everyBundledVariantIsWellFormedAndParsesInZsh() throws {
+        let f = try bundled()
+        var checked = 0
+        for a in f.actions {
+            let ids = (a.variants ?? []).map(\.id)
+            #expect(Set(ids).count == ids.count, "duplicate variant ids in \(a.id)")
+            for id in [nil] + ids.map({ Optional($0) }) {
+                let r = Actions.resolved(a, variant: id)
+                let ctx = ActionContext(folder: "/tmp", selection: ["/tmp/a b.txt"])
+                let cmd = Actions.render(r, in: ctx)
+                let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/zsh"); p.arguments = ["-n", "-c", cmd]
+                let err = Pipe(); p.standardError = err; p.standardOutput = err
+                try p.run(); p.waitUntilExit()
+                #expect(p.terminationStatus == 0, "\(a.id)/\(id ?? "base") doesn't parse: \(cmd)")
+                #expect(!(r.explain ?? []).isEmpty || a.explain == nil, "\(a.id)/\(id ?? "base") lost its explanation")
+                checked += 1
+            }
+        }
+        #expect(checked > f.actions.count)
+    }
+}

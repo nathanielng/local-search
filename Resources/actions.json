@@ -1,5 +1,5 @@
 {
- "version": 2,
+ "version": 4,
  "actions": [
   {
    "id": "zip",
@@ -14,7 +14,32 @@
     "the selected items — what goes in it"
    ],
    "needs": "some",
-   "tool": "zip"
+   "tool": "zip",
+   "variants": [
+    {
+     "id": "smallest",
+     "title": "Smallest file",
+     "description": "Spend more time to make the zip as small as possible.",
+     "command": "zip -r -9 {{out:Archive.zip}} {{selection}}",
+     "explain": [
+      "zip -r -9 — pack folders too, at the best compression",
+      "{{out:Archive.zip}} — the new file; never overwrites",
+      "the selected items — what goes in it"
+     ]
+    },
+    {
+     "id": "no-hidden",
+     "title": "No hidden files",
+     "description": "Leave out hidden files such as .DS_Store and .git.",
+     "command": "zip -r {{out:Archive.zip}} {{selection}} -x '*.DS_Store' -x '*/.*' -x '.*'",
+     "explain": [
+      "zip -r — pack folders too",
+      "-x '*.DS_Store' -x '*/.*' -x '.*' — skip Finder clutter and any hidden file or folder",
+      "{{out:Archive.zip}} — the new file; never overwrites"
+     ]
+    }
+   ],
+   "baseLabel": "Standard"
   },
   {
    "id": "unzip",
@@ -30,7 +55,28 @@
    "extensions": [
     "zip"
    ],
-   "each": true
+   "each": true,
+   "variants": [
+    {
+     "id": "here",
+     "title": "Into this folder",
+     "description": "Unpack next to the zip without overwriting anything.",
+     "command": "unzip -n {{file}}",
+     "explain": [
+      "unzip -n — unpack here, and never replace a file that already exists"
+     ]
+    },
+    {
+     "id": "list",
+     "title": "List contents only",
+     "description": "Show what's inside without unpacking.",
+     "command": "unzip -l {{file}}",
+     "explain": [
+      "unzip -l — list the files and their sizes; nothing is unpacked"
+     ]
+    }
+   ],
+   "baseLabel": "Standard"
   },
   {
    "id": "tar-gz",
@@ -43,7 +89,21 @@
     "tar -czf — create a compressed archive file",
     "{{out:Archive.tar.gz}} — the new file; never overwrites",
     "the selected items — what goes in it"
-   ]
+   ],
+   "variants": [
+    {
+     "id": "clean",
+     "title": "Without Mac metadata",
+     "description": "Skip the hidden ._ files macOS adds, for archives that will be opened on Linux.",
+     "command": "COPYFILE_DISABLE=1 tar -czf {{out:Archive.tar.gz}} {{selection}}",
+     "explain": [
+      "COPYFILE_DISABLE=1 — don't add macOS's extra ._ files",
+      "tar -czf — create a compressed archive file",
+      "{{out:Archive.tar.gz}} — the new file; never overwrites"
+     ]
+    }
+   ],
+   "baseLabel": "Standard"
   },
   {
    "id": "untar",
@@ -76,7 +136,40 @@
     "find . — look in this folder and everything below it",
     "-iname — match the name, ignoring capital letters",
     "-not -path '*/.*' — skip hidden folders"
-   ]
+   ],
+   "variants": [
+    {
+     "id": "files",
+     "title": "Files only",
+     "description": "Only match files, not folders.",
+     "command": "find . -type f -iname {{ask:Name contains=*report*}} -not -path '*/.*'",
+     "explain": [
+      "find . -type f — look at files only",
+      "-iname — match the name, ignoring capital letters",
+      "-not -path '*/.*' — skip hidden folders"
+     ]
+    },
+    {
+     "id": "folders",
+     "title": "Folders only",
+     "description": "Only match folders.",
+     "command": "find . -type d -iname {{ask:Name contains=*backup*}} -not -path '*/.*'",
+     "explain": [
+      "find . -type d — look at folders only",
+      "-iname — match the name, ignoring capital letters"
+     ]
+    },
+    {
+     "id": "exact",
+     "title": "Exact capitals",
+     "description": "Match capital letters exactly.",
+     "command": "find . -name {{ask:Name contains=*Report*}} -not -path '*/.*'",
+     "explain": [
+      "-name — match the name exactly, capitals included"
+     ]
+    }
+   ],
+   "baseLabel": "Standard"
   },
   {
    "id": "grep-text",
@@ -92,7 +185,40 @@
     "-r — go into folders",
     "-I — skip binary files",
     "-n — show line numbers"
-   ]
+   ],
+   "variants": [
+    {
+     "id": "ignore-case",
+     "title": "Ignore capitals",
+     "description": "Match text whatever its capitals.",
+     "command": "grep -rIni --exclude-dir='.*' {{ask:Text=todo}} .",
+     "explain": [
+      "-i — ignore capital letters",
+      "-r -I -n — go into folders, skip binary files, show line numbers"
+     ]
+    },
+    {
+     "id": "word",
+     "title": "Whole word",
+     "description": "Match whole words only, so 'cat' doesn't find 'catalog'.",
+     "command": "grep -rInw --exclude-dir='.*' {{ask:Text=TODO}} .",
+     "explain": [
+      "-w — the text must be a whole word",
+      "-r -I -n — go into folders, skip binary files, show line numbers"
+     ]
+    },
+    {
+     "id": "names",
+     "title": "File names only",
+     "description": "List which files contain it, without the lines.",
+     "command": "grep -rIl --exclude-dir='.*' {{ask:Text=TODO}} .",
+     "explain": [
+      "-l — show only the names of files that contain a match",
+      "-r -I — go into folders, skip binary files"
+     ]
+    }
+   ],
+   "baseLabel": "Standard"
   },
   {
    "id": "big-files",
@@ -107,7 +233,19 @@
     "find . -type f — every file below here",
     "du -k — its size in kilobytes",
     "sort -rn | head -20 — biggest first, keep 20"
-   ]
+   ],
+   "variants": [
+    {
+     "id": "top50",
+     "title": "Top 50",
+     "description": "Show the 50 largest instead of 20.",
+     "command": "find . -type f -not -path '*/.*' -exec du -k {} + | sort -rn | head -50",
+     "explain": [
+      "sort -rn | head -50 — biggest first, keep 50"
+     ]
+    }
+   ],
+   "baseLabel": "Standard"
   },
   {
    "id": "disk-usage",
@@ -238,7 +376,29 @@
    "explain": [
     "ffmpeg -i — read this video",
     "-c:v libx264 -c:a aac — the common MP4 picture and sound formats"
-   ]
+   ],
+   "variants": [
+    {
+     "id": "small",
+     "title": "Smaller file",
+     "description": "Re-encode harder for a smaller file, with a little less quality.",
+     "command": "ffmpeg -i {{file}} -c:v libx264 -crf 28 -c:a aac {{out:<stem>.mp4}}",
+     "explain": [
+      "-crf 28 — lower quality than the default (23), noticeably smaller"
+     ]
+    },
+    {
+     "id": "copy",
+     "title": "Fast, no re-encode",
+     "description": "Rewrap the same picture and sound in an MP4, which takes seconds. Only works if the formats fit MP4.",
+     "command": "ffmpeg -i {{file}} -c copy {{out:<stem>.mp4}}",
+     "explain": [
+      "-c copy — keep the picture and sound exactly as they are",
+      "only the container changes, so quality is untouched"
+     ]
+    }
+   ],
+   "baseLabel": "Standard"
   },
   {
    "id": "video-audio",
@@ -282,17 +442,6 @@
    ]
   },
   {
-   "id": "checksum",
-   "title": "SHA-256 checksum",
-   "group": "Utilities",
-   "description": "Show a checksum, to confirm a file wasn't changed or damaged.",
-   "command": "shasum -a 256 {{selection}}",
-   "needs": "some",
-   "explain": [
-    "shasum -a 256 — a fingerprint of each file's contents"
-   ]
-  },
-  {
    "id": "hashes",
    "title": "File hashes",
    "group": "Utilities",
@@ -304,7 +453,37 @@
     "md5 -q — the MD5 fingerprint, short and old; fine for spotting accidental changes",
     "shasum -a 1 / 256 / 512 — the SHA family; SHA-256 is what most download pages list",
     "cut -d' ' -f1 — keep just the hash, not the file name"
-   ]
+   ],
+   "variants": [
+    {
+     "id": "sha256",
+     "title": "SHA-256 only",
+     "description": "Just the SHA-256, the one most download pages list.",
+     "command": "shasum -a 256 {{selection}}",
+     "explain": [
+      "shasum -a 256 — a fingerprint of each file's contents"
+     ]
+    },
+    {
+     "id": "sha512",
+     "title": "SHA-512 only",
+     "description": "Just the SHA-512, the longest and strongest.",
+     "command": "shasum -a 512 {{selection}}",
+     "explain": [
+      "shasum -a 512 — a longer fingerprint of each file's contents"
+     ]
+    },
+    {
+     "id": "md5",
+     "title": "MD5 only",
+     "description": "Just the MD5, short and old; fine for spotting accidental changes.",
+     "command": "md5 {{selection}}",
+     "explain": [
+      "md5 — a short fingerprint; not safe against tampering"
+     ]
+    }
+   ],
+   "baseLabel": "Standard"
   },
   {
    "id": "check-hash",
@@ -351,7 +530,28 @@
    "needs": "none",
    "explain": [
     "ls -lah — long format, all files, readable sizes"
-   ]
+   ],
+   "variants": [
+    {
+     "id": "newest",
+     "title": "Newest first",
+     "description": "Sort by modified time, newest at the top.",
+     "command": "ls -laht",
+     "explain": [
+      "ls -laht — long format, all files, readable sizes, newest first"
+     ]
+    },
+    {
+     "id": "folders",
+     "title": "Folders only",
+     "description": "List only the folders.",
+     "command": "ls -lahd */",
+     "explain": [
+      "ls -lahd */ — details for each folder, not what's inside"
+     ]
+    }
+   ],
+   "baseLabel": "Standard"
   },
   {
    "id": "untag-quarantine",
