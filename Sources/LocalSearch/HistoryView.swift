@@ -29,7 +29,7 @@ struct HistoryView: View {
             Divider()
             Table(entries, selection: $selection) {
                 TableColumn("Time") { e in Text(local(e.at)).foregroundStyle(.secondary) }.width(min: 120, ideal: 140)
-                TableColumn("Item") { e in Text(e.title).lineLimit(1).truncationMode(.middle) }
+                TableColumn("Item") { e in Text(e.displayTitle).lineLimit(1).truncationMode(.middle) }
                 TableColumn("Detail") { e in Text(e.detail).foregroundStyle(.secondary).lineLimit(1) }.width(min: 80, ideal: 140)
             }
             .contextMenu(forSelectionType: String.self) { ids in menu(for: ids) } primaryAction: { ids in

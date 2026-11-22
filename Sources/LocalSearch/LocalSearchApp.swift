@@ -37,7 +37,9 @@ struct AppCommands: Commands {
             Button(model.undoLabel.map { "Undo \($0)" } ?? "Undo") {
                 if editingText { NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) } else { model.undo() }
             }.keyboardShortcut("z").disabled(model.undoLabel == nil && !editingText)
-            Button("Redo") { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) }.keyboardShortcut("z", modifiers: [.command, .shift])
+            Button(model.redoLabel.map { "Redo \($0)" } ?? "Redo") {
+                if editingText { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) } else { model.redo() }
+            }.keyboardShortcut("z", modifiers: [.command, .shift]).disabled(model.redoLabel == nil && !editingText)
         }
         // Copy/Paste act on files unless a text field is being edited.
         CommandGroup(replacing: .pasteboard) {

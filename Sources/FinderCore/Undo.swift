@@ -26,9 +26,17 @@ extension FileOps {
     /// Reverse an action. Never overwrites: if the original name is taken again, that step fails.
     @discardableResult
     public static func undo(_ record: UndoRecord, store: FinderStore?, actor: String = "app") -> [FileOpResult] {
+        undoWithRedo(record, store: store, actor: actor).results
+    }
+
+    /// Like `undo`, and also returns the record that re-applies the action (Redo). Items that undo sends
+    /// to the Trash are restorable from there.
+    public static func undoWithRedo(_ record: UndoRecord, store: FinderStore?, actor: String = "app")
+        -> (results: [FileOpResult], redo: UndoRecord?) {
         let fm = FileManager.default
         let batch = UUID().uuidString
         var results: [FileOpResult] = []
+        var inverse: [UndoRecord.Step] = []
         for step in record.steps.reversed() {
             switch step {
             case .moveBack(let from, let to):
@@ -45,6 +53,7 @@ extension FileOps {
                             try fm.moveItem(atPath: tmp, toPath: to)
                         } else { try fm.moveItem(atPath: from, toPath: to) }
                         r.result = "done"; r.dst = to
+                        inverse.append(.moveBack(from: to, to: from))
                     } catch { r.message = error.localizedDescription }
                 }
                 results.append(r)
@@ -53,14 +62,18 @@ extension FileOps {
                 var r = FileOpResult(src: p, dst: nil, result: "failed", message: nil)
                 if !fm.fileExists(atPath: p) { r.message = "“\((p as NSString).lastPathComponent)” is no longer there" }
                 else {
-                    do { try fm.trashItem(at: URL(fileURLWithPath: p), resultingItemURL: nil); r.result = "done" }
-                    catch { r.message = error.localizedDescription }
+                    var out: NSURL?
+                    do {
+                        try fm.trashItem(at: URL(fileURLWithPath: p), resultingItemURL: &out)
+                        r.result = "done"
+                        if let t = out?.path { inverse.append(.moveBack(from: t, to: p)); r.dst = t }
+                    } catch { r.message = error.localizedDescription }
                 }
                 results.append(r)
-                try? store?.logFileOp(batch: batch, op: "trash", src: p, dst: nil, result: r.result, actor: actor)
+                try? store?.logFileOp(batch: batch, op: "trash", src: p, dst: r.dst, result: r.result, actor: actor)
             }
         }
-        return results
+        return (results, inverse.isEmpty ? nil : UndoRecord(label: record.label, steps: inverse))
     }
 
     /// Trash items and return what's needed to put them back.

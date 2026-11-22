@@ -12,6 +12,22 @@ public struct HistoryEntry: Identifiable, Sendable, Equatable {
     var table: String, column: String, key: DBValue
 }
 
+extension HistoryEntry {
+    static let opSymbols = ["copy": "📋", "move": "➡️", "trash": "🗑️", "rename": "✏️", "create": "➕"]
+
+    /// What the History window shows: the leading operation word becomes a symbol.
+    /// `title` keeps the plain word (CSV export and search use it).
+    public var displayTitle: String {
+        guard kind == .fileOp, let space = title.firstIndex(of: " ") else {
+            if kind == .fileOp, let sym = Self.opSymbols[title] { return sym }
+            return title
+        }
+        let word = String(title[..<space])
+        guard let sym = Self.opSymbols[word] else { return title }
+        return sym + title[space...]
+    }
+}
+
 extension FinderStore {
     public func logFileOp(batch: String, op: String, src: String?, dst: String?, result: String, actor: String) throws {
         try db.exec("INSERT INTO file_ops(batch_id,op,src,dst,result,actor,at) VALUES(?,?,?,?,?,?,?)",

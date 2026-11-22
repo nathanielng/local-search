@@ -20,10 +20,13 @@ final class AppModel {
     var renamingPath: String?
     var copyJob: CopyJob?
     var undoStack: [UndoRecord] = []
+    var redoStack: [UndoRecord] = []
+    var tabDropMark: (tab: UUID, after: Bool, files: Bool)?
     var dropHighlight: (id: UUID, zone: DropZone)?
     @ObservationIgnored private var highlightWatch: Task<Void, Never>?
     @ObservationIgnored let watcher = FolderWatcher()
     var undoLabel: String? { undoStack.last?.label }
+    var redoLabel: String? { redoStack.last?.label }
     var retentionDays = 0 { didSet { store?.setKV("retention_days", String(retentionDays)) } }
 
     init() {
@@ -192,11 +195,18 @@ final class AppModel {
         refresh(); persist()
     }
 
-    func moveTab(_ id: UUID, before target: UUID) {
+    /// Reorder: put `id` just before or after `target`.
+    func moveTab(_ id: UUID, relativeTo target: UUID, after: Bool) {
         guard id != target, let from = tabs.firstIndex(where: { $0.id == id }) else { return }
         let t = tabs.remove(at: from)
-        let to = tabs.firstIndex { $0.id == target } ?? tabs.count
-        tabs.insert(t, at: to)
+        guard let to = tabs.firstIndex(where: { $0.id == target }) else { tabs.append(t); persist(); return }
+        tabs.insert(t, at: after ? to + 1 : to)
+        persist()
+    }
+
+    func moveTabToEnd(_ id: UUID) {
+        guard let from = tabs.firstIndex(where: { $0.id == id }), from != tabs.count - 1 else { return }
+        tabs.append(tabs.remove(at: from))
         persist()
     }
 
@@ -295,34 +305,58 @@ final class AppModel {
 
     func setDropHighlight(id: UUID, zone: DropZone) {
         if dropHighlight?.id != id || dropHighlight?.zone != zone { dropHighlight = (id, zone) }
-        guard highlightWatch == nil else { return }
-        // Safety net: when the mouse button is up the drag is over, whatever callbacks were skipped.
-        highlightWatch = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(150))
-                guard let self else { return }
-                if NSEvent.pressedMouseButtons & 1 == 0 { self.dropHighlight = nil }
-                if self.dropHighlight == nil { self.highlightWatch = nil; return }
-            }
-        }
+        watchDragEnd()
     }
 
     func clearDropHighlight(id: UUID) {
         if dropHighlight?.id == id { dropHighlight = nil }
     }
 
-    func pushUndo(_ r: UndoRecord) {
+    func setTabDropMark(tab: UUID, after: Bool, files: Bool) {
+        if tabDropMark?.tab != tab || tabDropMark?.after != after || tabDropMark?.files != files { tabDropMark = (tab, after, files) }
+        watchDragEnd()
+    }
+
+    func clearTabDropMark(tab: UUID) {
+        if tabDropMark?.tab == tab { tabDropMark = nil }
+    }
+
+    /// Safety net: when the mouse button is up the drag is over, whatever drop callbacks were skipped.
+    private func watchDragEnd() {
+        guard highlightWatch == nil else { return }
+        highlightWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard let self else { return }
+                if NSEvent.pressedMouseButtons & 1 == 0 { self.dropHighlight = nil; self.tabDropMark = nil }
+                if self.dropHighlight == nil && self.tabDropMark == nil { self.highlightWatch = nil; return }
+            }
+        }
+    }
+
+    /// A new action starts a new history: Redo is cleared.
+    func pushUndo(_ r: UndoRecord, clearRedo: Bool = true) {
         undoStack.append(r)
         if undoStack.count > 50 { undoStack.removeFirst(undoStack.count - 50) }
+        if clearRedo { redoStack.removeAll() }
     }
 
     /// ⌘Z for file operations. Never overwrites; a step fails if the original name is taken again.
-    func undo() {
-        guard let rec = undoStack.popLast(), let store else { return }
+    func undo() { step(from: &undoStack, label: "undo") }
+
+    /// ⇧⌘Z: re-applies what ⌘Z reversed.
+    func redo() { step(from: &redoStack, label: "redo") }
+
+    private func step(from stack: inout [UndoRecord], label: String) {
+        guard let rec = stack.popLast(), let store else { return }
+        let isUndo = label == "undo"
         Task {
-            let results = await Task.detached { FileOps.undo(rec, store: store) }.value
-            let failed = results.filter { $0.result != "done" }
-            warning = failed.isEmpty ? nil : "Couldn't fully undo \(rec.label): \(failed[0].message ?? failed[0].result)"
+            let out = await Task.detached { FileOps.undoWithRedo(rec, store: store) }.value
+            if let inverse = out.redo {
+                if isUndo { redoStack.append(inverse) } else { pushUndo(inverse, clearRedo: false) }
+            }
+            let failed = out.results.filter { $0.result != "done" }
+            warning = failed.isEmpty ? nil : "Couldn't fully \(label) \(rec.label): \(failed[0].message ?? failed[0].result)"
             refresh(); historyVersion += 1
         }
     }

@@ -236,6 +236,37 @@ private func tempDir() throws -> String {
 }
 
 @Suite struct UndoTests {
+    @Test func redoReappliesMoveCopyAndRename() throws {
+        let a = try tempDir(), b = try tempDir()
+        FileManager.default.createFile(atPath: a + "/f.txt", contents: Data("x".utf8))
+        let fm = FileManager.default
+        // move: undo then redo
+        let mv = FileOps.perform(.move, sources: [a + "/f.txt"], into: b, store: nil)
+        let u1 = FileOps.undoWithRedo(try #require(UndoRecord.forJob(.move, results: mv, conflict: .keepBoth)), store: nil)
+        #expect(fm.fileExists(atPath: a + "/f.txt"))
+        FileOps.undo(try #require(u1.redo), store: nil)
+        #expect(fm.fileExists(atPath: b + "/f.txt") && !fm.fileExists(atPath: a + "/f.txt"))
+        // copy: undo trashes the copy, redo restores it from the Trash
+        FileManager.default.createFile(atPath: a + "/g-\(UUID().uuidString).txt", contents: Data("y".utf8))
+        let g = a + "/" + (try fm.contentsOfDirectory(atPath: a)[0])
+        let cp = FileOps.perform(.copy, sources: [g], into: b, store: nil)
+        let u2 = FileOps.undoWithRedo(try #require(UndoRecord.forJob(.copy, results: cp, conflict: .keepBoth)), store: nil)
+        #expect(!fm.fileExists(atPath: cp[0].dst!))
+        FileOps.undo(try #require(u2.redo), store: nil)
+        #expect(try String(contentsOfFile: cp[0].dst!, encoding: .utf8) == "y")
+        // rename
+        let r = FileOps.rename(b + "/f.txt", to: "h.txt", store: nil)
+        let u3 = FileOps.undoWithRedo(UndoRecord(label: "Rename", steps: [.moveBack(from: r.dst!, to: r.src)]), store: nil)
+        FileOps.undo(try #require(u3.redo), store: nil)
+        #expect(fm.fileExists(atPath: b + "/h.txt") && !fm.fileExists(atPath: b + "/f.txt"))
+    }
+    @Test func historySymbols() {
+        func e(_ t: String) -> HistoryEntry { HistoryEntry(id: "x", kind: .fileOp, at: "", title: t, detail: "", folder: nil, table: "", column: "", key: .null) }
+        #expect(e("move /a → /b").displayTitle == "➡️ /a → /b")
+        #expect(e("copy 3 items → /b").displayTitle == "📋 3 items → /b".replacingOccurrences(of: "3 items", with: "3 items"))
+        #expect(e("trash /a").displayTitle == "🗑️ /a" && e("rename /a → /b").displayTitle.hasPrefix("✏️"))
+        #expect(e("unknown /a").displayTitle == "unknown /a")
+    }
     @Test func undoMoveAndCopy() throws {
         let a = try tempDir(), b = try tempDir()
         FileManager.default.createFile(atPath: a + "/f.txt", contents: Data("x".utf8))

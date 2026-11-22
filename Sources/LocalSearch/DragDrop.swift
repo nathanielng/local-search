@@ -98,26 +98,31 @@ extension View {
     }
 }
 
-/// Tabs accept both files (moved into the tab's folder) and other tabs (reorder).
+/// Tabs accept both files (moved into the tab's folder) and other tabs (reorder). A tab dropped on the
+/// left half of another tab goes before it, on the right half after it.
 struct TabDropDelegate: DropDelegate {
     let model: AppModel
     let tab: TabState
-    let setTargeted: (Bool) -> Void
+    let width: CGFloat
 
+    private func isFiles(_ info: DropInfo) -> Bool { info.hasItemsConforming(to: [.fileURL]) }
     func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.fileURL, .plainText]) }
-    func dropEntered(info: DropInfo) { setTargeted(true) }
-    func dropExited(info: DropInfo) { setTargeted(false) }
+    func dropEntered(info: DropInfo) { mark(info) }
+    func dropExited(info: DropInfo) { model.clearTabDropMark(tab: tab.id) }
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        if info.hasItemsConforming(to: [.fileURL]) {
-            return DropProposal(operation: NSEvent.modifierFlags.contains(.option) ? .copy : .move)
-        }
+        mark(info)
+        if isFiles(info) { return DropProposal(operation: NSEvent.modifierFlags.contains(.option) ? .copy : .move) }
         return DropProposal(operation: .move)
+    }
+    private func mark(_ info: DropInfo) {
+        model.setTabDropMark(tab: tab.id, after: width > 0 && info.location.x > width / 2, files: isFiles(info))
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        setTargeted(false)
+        let after = width > 0 && info.location.x > width / 2
+        model.clearTabDropMark(tab: tab.id)
         let model = model, tab = tab
-        if info.hasItemsConforming(to: [.fileURL]) {
+        if isFiles(info) {
             let providers = info.itemProviders(for: [.fileURL])
             let option = NSEvent.modifierFlags.contains(.option)
             Task { @MainActor in
@@ -128,8 +133,31 @@ struct TabDropDelegate: DropDelegate {
                 let s: String? = await withCheckedContinuation { c in
                     _ = p.loadObject(ofClass: String.self) { s, _ in c.resume(returning: s) }
                 }
-                if let s, let id = UUID(uuidString: s) { model.moveTab(id, before: tab.id) }
+                if let s, let id = UUID(uuidString: s) { model.moveTab(id, relativeTo: tab.id, after: after) }
             }
+        }
+        return true
+    }
+}
+
+/// The empty space after the last tab: dropping a tab here moves it to the very end.
+struct TabEndDropDelegate: DropDelegate {
+    let model: AppModel
+
+    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.plainText]) }
+    func dropEntered(info: DropInfo) { if let last = model.tabs.last { model.setTabDropMark(tab: last.id, after: true, files: false) } }
+    func dropExited(info: DropInfo) { if let last = model.tabs.last { model.clearTabDropMark(tab: last.id) } }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        if let last = model.tabs.last { model.clearTabDropMark(tab: last.id) }
+        guard let p = info.itemProviders(for: [.plainText]).first else { return false }
+        let model = model
+        Task { @MainActor in
+            let s: String? = await withCheckedContinuation { c in
+                _ = p.loadObject(ofClass: String.self) { s, _ in c.resume(returning: s) }
+            }
+            if let s, let id = UUID(uuidString: s) { model.moveTabToEnd(id) }
         }
         return true
     }

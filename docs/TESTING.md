@@ -2,7 +2,7 @@
 
 Scratch setup: `mkdir -p ~/Desktop/ls-test/{a,b} && cd ~/Desktop/ls-test && echo one > a/f.txt && echo two > b/f.txt && echo hi > note.md`
 
-Unit tests: `scripts/test.sh` (29 tests). Everything below is checked by hand in the running app by the
+Unit tests: `scripts/test.sh` (31 tests). Everything below is checked by hand in the running app by the
 owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 
 ## Verified
@@ -20,18 +20,27 @@ owner (trackpad with 3-finger drag). Last full pass: 22 Nov 2026.
 | Favorites: add by drag | A folder dropped on the Favorites header or the top/bottom edge of a row becomes a shortcut at that position; the blue gap line appears and clears after release |
 | Favorites: remove | Right-click › Remove from Favorites |
 | Auto-refresh | `mv a/memo.md .` in a terminal updates the open folder by itself |
+| Drag out to another app | `memo.md` dragged into WhatsApp is delivered (Slack not tried) |
+| ⌥-drag | Copies instead of moving |
+| Drop on a Favorites row | `memo.md` dropped on Documents moves in; ⌘Z undoes it |
+| Folder on the middle of a Favorites row | Moves into that favorite |
+| ⌥⌘V Move Item Here | Moves the copied files into the current folder |
+| History window (⌘Y) | Tabs, search, export, delete and Clear work |
+| Tab reorder | Dragging a tab to the front and, via the end-of-row target, to the very end; a bar shows where it lands |
+| Redo (⇧⌘Z) | Move: ⌘Z then ⇧⌘Z re-applies it; copy: ⌘Z trashes the copy and ⇧⌘Z restores it; rename; menu shows "Redo <action>" |
+| History symbols | 📋 copy, ➡️ move, 🗑️ trash, ✏️ rename, ➕ create shown in the History window |
 
 ## Not yet tested by hand
 
-- Drag a file out of the list into Slack or a browser upload field (the main reason for `AppKitDragFix`)
-- ⌥-drag to copy, in the list and onto sidebar rows or tabs
-- Dropping a file or folder onto a tab; dragging tabs to reorder
-- Dropping a folder on the middle of a Favorites row (should move it in)
-- Dropping a file on a Favorites or Locations row
-- ⌥⌘V Move Item Here
-- History window (⌘Y): tabs, search, CSV export, delete, Clear; Settings retention
-- Redo, Show in Finder (⌥⌘R), ⌘⌫ Move to Trash from the menu
+- Dropping a file onto a tab (moves into the tab's folder)
+- Dragging into Slack specifically; a browser upload field
+- Dropping a file on a Locations or Config row
+- Settings retention; Show in Finder (⌥⌘R); ⌘⌫ Move to Trash from the menu
 - Right-click › Open in New Tab / Show in Finder in the sidebar
+
+## Known gaps
+
+- Favorites cannot be reordered by dragging yet (in the spec).
 
 ## Bugs found and fixed during testing
 

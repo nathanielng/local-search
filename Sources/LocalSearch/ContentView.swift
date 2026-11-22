@@ -43,27 +43,45 @@ struct TabBar: View {
         HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
-                    ForEach(model.tabs) { tab in
-                        let selected = tab.id == model.selectedTabID
-                        HStack(spacing: 4) {
-                            Text(model.titleFor(tab)).lineLimit(1)
-                            Button { model.closeTab(tab.id) } label: { Image(systemName: "xmark").font(.caption2) }
-                                .buttonStyle(.plain).opacity(model.tabs.count > 1 ? 0.6 : 0)
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(selected ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
-                        .contentShape(Rectangle())
-                        .onTapGesture { model.selectTab(tab.id) }
-                        .draggable(tab.id.uuidString)
-                        .onDrop(of: [.fileURL, .plainText], delegate: TabDropDelegate(model: model, tab: tab) { _ in })
-                        .contextMenu {
-                            Button("Duplicate Tab") { model.duplicateTab() }
-                            Button("Close Tab") { model.closeTab(tab.id) }
-                        }
-                    }
+                    ForEach(model.tabs) { tab in TabButton(tab: tab) }
+                    // Dropping a tab here moves it to the very end.
+                    Color.clear.frame(width: 60, height: 28).contentShape(Rectangle())
+                        .onDrop(of: [.plainText], delegate: TabEndDropDelegate(model: model))
                 }.padding(4)
             }
             Button { model.newTab() } label: { Image(systemName: "plus") }.buttonStyle(.plain).padding(.horizontal, 8)
+        }
+    }
+}
+
+struct TabButton: View {
+    @Environment(AppModel.self) private var model
+    let tab: TabState
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        let selected = tab.id == model.selectedTabID
+        let mark = model.tabDropMark?.tab == tab.id ? model.tabDropMark : nil
+        HStack(spacing: 4) {
+            Text(model.titleFor(tab)).lineLimit(1)
+            Button { model.closeTab(tab.id) } label: { Image(systemName: "xmark").font(.caption2) }
+                .buttonStyle(.plain).opacity(model.tabs.count > 1 ? 0.6 : 0)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(selected ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+        // Files hovering over the tab highlight it; a tab being reordered shows a bar where it will land.
+        .overlay { if mark?.files == true { RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.3)) } }
+        .overlay(alignment: mark?.after == true ? .trailing : .leading) {
+            if let mark, !mark.files { Capsule().fill(Color.accentColor).frame(width: 3).padding(.vertical, 1).offset(x: mark.after ? 3 : -3) }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .contentShape(Rectangle())
+        .onTapGesture { model.selectTab(tab.id) }
+        .draggable(tab.id.uuidString)
+        .onDrop(of: [.fileURL, .plainText], delegate: TabDropDelegate(model: model, tab: tab, width: width))
+        .contextMenu {
+            Button("Duplicate Tab") { model.duplicateTab() }
+            Button("Close Tab") { model.closeTab(tab.id) }
         }
     }
 }

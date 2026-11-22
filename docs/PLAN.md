@@ -14,6 +14,7 @@ The full brief lives in `finder-prompt.md` (kept outside the repo). This file tr
 - Rename (inline, stem selected), New Folder / New Text File (opened for renaming), Copy / Paste with
   Keep Both / Replace / Skip / Stop, background copy with progress and Stop, copy paths, copy file text
   for AI (skips binaries and likely secrets), Quick Look (Space), Show in Finder.
+- Redo, History symbols, tab drop marker and end-of-row target.
 - Undo (⌘Z), Move Item Here (⌥⌘V), folder watching, Favorites drop zones and right-click removal.
 - MCP server: read-only tools.
 
