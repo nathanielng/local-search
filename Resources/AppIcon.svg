@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5B9BFF"/>
+      <stop offset="1" stop-color="#1D3C9E"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.20"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="tile"><rect x="100" y="100" width="824" height="824" rx="190"/></clipPath>
+  </defs>
+  <!-- app tile (macOS icon grid: 824 pt squircle on a 1024 canvas) -->
+  <rect x="100" y="100" width="824" height="824" rx="190" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" fill="url(#gloss)" clip-path="url(#tile)"/>
+  <!-- folder: back panel with tab, then front panel -->
+  <path d="M232 392 a44 44 0 0 1 44 -44 h150 a44 44 0 0 1 33 15 l34 40 h262 a44 44 0 0 1 44 44 v40 h-567 z" fill="#C9DBFF"/>
+  <rect x="232" y="432" width="568" height="330" rx="48" fill="#FFFFFF"/>
+  <!-- magnifier -->
+  <line x1="745" y1="713" x2="836" y2="804" stroke="#E8890C" stroke-width="64" stroke-linecap="round"/>
+  <circle cx="640" cy="608" r="132" fill="#FFFFFF" fill-opacity="0.35" stroke="#FFC93C" stroke-width="48"/>
+  <path d="M588 572 a70 70 0 0 1 56 -36" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" stroke-opacity="0.9"/>
+</svg>

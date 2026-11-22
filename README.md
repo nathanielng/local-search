@@ -19,6 +19,12 @@ scripts/test.sh          # unit tests (swift-testing) in .build-test
 
 Each rebuild changes the ad-hoc signature, so macOS may ask for privacy permissions again.
 
+## App icon
+
+`Resources/AppIcon.svg` is the source; `scripts/make-icon.swift` renders it into `Resources/AppIcon.icns`
+(`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk swift scripts/make-icon.swift`).
+`build-app.sh` copies the `.icns` into the app bundle.
+
 ## Layout
 
 | Target | Purpose |

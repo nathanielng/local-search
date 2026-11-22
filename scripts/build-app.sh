@@ -16,6 +16,7 @@ cat > "$APP/Contents/Info.plist" <<PL
 <key>CFBundleIdentifier</key><string>dev.localsearch.LocalSearch</string>
 <key>CFBundleName</key><string>Local Search</string>
 <key>CFBundleExecutable</key><string>LocalSearch</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
