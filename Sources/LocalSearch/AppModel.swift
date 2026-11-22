@@ -21,6 +21,8 @@ final class AppModel {
     var copyJob: CopyJob?
     var undoStack: [UndoRecord] = []
     var showQuickFind = false
+    var networkLocations: [NetworkLocation] = []
+    var connecting: String?
     @ObservationIgnored var pendingSelection: String?
     var redoStack: [UndoRecord] = []
     var tabDropMark: (tab: UUID, after: Bool, files: Bool)?
@@ -44,6 +46,8 @@ final class AppModel {
         textSize = Double(s?.kv("text_size") ?? "") ?? 13
         retentionDays = Int(s?.kv("retention_days") ?? "") ?? 0
         try? s?.purgeHistory(olderThanDays: retentionDays)
+        networkLocations = NetworkLocation.load()
+        watchVolumes()
         if s == nil { warning = "History database could not be opened; nothing will be saved." }
         // Only the visible tab loads at launch.
         Task { @MainActor in self.ensureLoaded(self.selectedTabID) }

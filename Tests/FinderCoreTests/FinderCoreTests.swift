@@ -389,3 +389,58 @@ private func tempDir() throws -> String {
         #expect(r.count <= 5)
     }
 }
+
+@Suite struct NetworkTests {
+    @Test func settingsLoadOnlyValidEntries() throws {
+        let dir = try tempDir(), f = URL(fileURLWithPath: dir + "/settings.json")
+        try Data(#"""
+        {"network_locations":[
+          {"title":"NAS","kind":"smb","url":"smb://nas.example/share"},
+          {"title":"Pi","kind":"ssh","host":"pi.example","user":"me","path":"/home/me"},
+          {"title":"Bad","kind":"ftp"}, {"kind":"smb"}]}
+        """#.utf8).write(to: f)
+        let l = NetworkLocation.load(from: f)
+        #expect(l.map(\.title) == ["NAS", "Pi"] && l[1].user == "me" && l[0].kind == .smb)
+        #expect(NetworkLocation.load(from: URL(fileURLWithPath: dir + "/none.json")).isEmpty)
+    }
+    @Test func smbMatchesHowMacOSNamesMounts() {
+        #expect(Mounts.hostAndShare("//USER@NAS._smb._tcp.local/share")! == ("nas", "share"))
+        #expect(Mounts.hostAndShare("smb://me@Nas.example.local/My%20Docs")! == ("nas.example", "my docs"))
+        let vols = [MountedVolume(mountPoint: "/Volumes/share", from: "//USER@NAS._smb._tcp.local/share", fsType: "smbfs"),
+                    MountedVolume(mountPoint: "/", from: "/dev/disk3s1", fsType: "apfs")]
+        #expect(Mounts.smbMountPoint(for: "smb://nas/share", in: vols) == "/Volumes/share")
+        #expect(Mounts.smbMountPoint(for: "smb://NAS", in: vols) == "/Volumes/share") // no share named: any share on that host
+        #expect(Mounts.smbMountPoint(for: "smb://nas/other", in: vols) == nil)
+        #expect(Mounts.smbMountPoint(for: "smb://elsewhere/share", in: vols) == nil)
+        #expect(vols[0].isNetwork && !vols[1].isNetwork)
+    }
+    @Test func sshMountPointIsPerTitleAndInsideSupportFolder() {
+        let a = NetworkLocation(title: "My Pi!", kind: .ssh, host: "h")
+        #expect(a.sshMountPoint.hasSuffix("/LocalSearch/mnt/my-pi-"))
+        #expect(Mounts.mountPoint(for: a, in: [MountedVolume(mountPoint: a.sshMountPoint, from: "x", fsType: "macfuse")]) == a.sshMountPoint)
+        #expect(Mounts.mountPoint(for: a, in: []) == nil)
+    }
+    @Test func listsRealMounts() {
+        #expect(Mounts.all().contains { $0.mountPoint == "/" })
+    }
+    @Test func sshWithoutSshfsExplainsWhatToInstall() {
+        guard NetworkMounter.sshfsPath == nil else { return }
+        #expect(throws: NetworkError.self) { try NetworkMounter.mount(NetworkLocation(title: "x", kind: .ssh, host: "h")) }
+    }
+}
+
+@Suite struct SSHConfigTests {
+    @Test func listsNamedHostsOnly() {
+        let cfg = """
+        Host *
+          ServerAliveInterval 30
+        Host pi nas
+          User me
+        host=build
+        Host *.example !bad
+        # Host commented
+        """
+        #expect(SSHConfig.hosts(from: cfg) == ["pi", "nas", "build"])
+        #expect(SSHConfig.hosts(from: "").isEmpty)
+    }
+}

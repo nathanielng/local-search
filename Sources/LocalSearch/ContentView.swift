@@ -3,14 +3,19 @@ import FinderCore
 
 struct ContentView: View {
     @Environment(AppModel.self) private var model
+    @AppStorage("showSidebar") private var showSidebar = true
+    @AppStorage("sidebarWidth") private var sidebarWidth = 112.0
 
     var body: some View {
         content.overlay { if model.showQuickFind { QuickFindView() } }
     }
 
     private var content: some View {
-        HSplitView {
-            SidebarView().frame(minWidth: 160, idealWidth: 200, maxWidth: 320)
+        HStack(spacing: 0) {
+            if showSidebar {
+                SidebarView().frame(width: min(max(sidebarWidth, 90), 320))
+                SidebarDivider(width: $sidebarWidth)
+            }
             VStack(spacing: 0) {
                 TabBar()
                 Divider()
@@ -43,8 +48,11 @@ struct ContentView: View {
 
 struct TabBar: View {
     @Environment(AppModel.self) private var model
+    @AppStorage("showSidebar") private var showSidebar = true
     var body: some View {
         HStack(spacing: 0) {
+            Button { showSidebar.toggle() } label: { Image(systemName: "sidebar.left") }
+                .buttonStyle(.plain).padding(.leading, 10).help("Show or hide the sidebar (⌃⌘S)")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
                     ForEach(model.tabs) { tab in TabButton(tab: tab) }
@@ -127,40 +135,49 @@ struct SidebarView: View {
         let s = model.store
         let home = AppPaths.home
         List {
-            section("Special Folders", reorder: "special", items: ((try? s?.specialFolders()) ?? []).map { ($0.title, $0.path, "bolt.fill") }, source: .special)
-            section("Favorites", reorder: "favorites", items: ((try? s?.favorites()) ?? []).map { ($0.title, $0.path, "star") }, source: .favorite)
-            section("Locations", items: [("Home", home, "house"), ("Macintosh HD", "/", "internaldrive"),
-                                         ("Volumes", "/Volumes", "externaldrive"), ("Trash", "\(home)/.Trash", "trash")], source: .sidebar)
-            section("Config", items: [".kiro", ".claude", ".aws", ".ssh"].map { ($0, "\(home)/\($0)", "gearshape") }, source: .sidebar)
+            section("Special Folders", reorder: "special", rows: ((try? s?.specialFolders()) ?? []).map { SidebarRow(title: $0.title, path: $0.path, symbol: "bolt.fill") }, source: .special)
+            section("Favorites", reorder: "favorites", rows: ((try? s?.favorites()) ?? []).map { SidebarRow(title: $0.title, path: $0.path, symbol: "star") }, source: .favorite)
+            section("Locations", rows: model.locationRows(), source: .sidebar)
+            section("Config", rows: [".kiro", ".claude", ".aws", ".ssh"].map { SidebarRow(title: $0, path: "\(home)/\($0)", symbol: "gearshape") }, source: .sidebar)
         }
         .listStyle(.sidebar)
     }
 
     @ViewBuilder
-    private func section(_ title: String, reorder: String? = nil, items: [(String, String, String)], source: NavSource) -> some View {
+    private func section(_ title: String, reorder: String? = nil, rows: [SidebarRow], source: NavSource) -> some View {
         let isOpen = !collapsed.contains(title)
         Section(isExpanded: Binding(get: { isOpen }, set: { open in
             var c = collapsed; if open { c.remove(title) } else { c.insert(title) }
             collapsedRaw = c.sorted().joined(separator: ",")
         })) {
-            ForEach(items.prefix(FinderStore.sidebarLimit), id: \.1) { item in
-                let exists = FileManager.default.fileExists(atPath: item.1)
-                Button { model.navigate(item.1, source) } label: {
+            ForEach(rows.prefix(FinderStore.sidebarLimit)) { row in
+                let missing = row.needsConnect ? false : !FileManager.default.fileExists(atPath: row.path)
+                Button { model.openRow(row, source: source) } label: {
                     // The whole row (no gaps) is clickable and a drop target.
-                    Label(item.0, systemImage: item.2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 5).padding(.horizontal, 10)
-                        .contentShape(Rectangle())
+                    HStack {
+                        Label(row.title, systemImage: row.symbol)
+                        if model.connecting == row.title { ProgressView().controlSize(.small) }
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 5).padding(.horizontal, 10)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain).opacity(exists ? 1 : 0.4)
-                .reorderDragSource(section: reorder, path: item.1)
-                .folderDropTarget(model, path: item.1, mode: title == "Favorites" ? .shortcutOrMove : .moveInto, section: reorder)
+                .buttonStyle(.plain).opacity(missing || row.needsConnect ? 0.45 : 1)
+                .help(row.needsConnect ? "Click to connect" : row.path)
+                .reorderDragSource(section: reorder, path: row.path)
+                .modifier(OptionalFolderDrop(enabled: !row.needsConnect, model: model, path: row.path,
+                                             mode: title == "Favorites" ? .shortcutOrMove : .moveInto, section: reorder))
                 .listRowInsets(EdgeInsets())
                 .contextMenu {
-                    Button("Open in New Tab") { model.newTab(path: item.1) }
-                    if title == "Favorites" { Button("Remove from Favorites") { model.removeFavorite(item.1) } }
-                    if title == "Special Folders" { Button("Remove from Special Folders") { model.removeSpecialFolder(item.1) } }
-                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.1)]) }
+                    if row.needsConnect, let loc = row.network { Button("Connect") { model.connect(loc) } }
+                    else {
+                        Button("Open in New Tab") { model.newTab(path: row.path) }
+                        if title == "Favorites" { Button("Remove from Favorites") { model.removeFavorite(row.path) } }
+                        if title == "Special Folders" { Button("Remove from Special Folders") { model.removeSpecialFolder(row.path) } }
+                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: row.path)]) }
+                    }
+                    if row.ejectable { Divider(); Button(row.network == nil ? "Eject" : "Disconnect") { model.eject(row.path, title: row.title) } }
                 }
             }
         } header: {
@@ -170,6 +187,18 @@ struct SidebarView: View {
                     .folderDropTarget(model, path: "", mode: .addShortcut)
             } else { Text(title) }
         }
+    }
+}
+
+/// Rows that aren't mounted yet can't take drops.
+struct OptionalFolderDrop: ViewModifier {
+    let enabled: Bool
+    let model: AppModel
+    let path: String
+    let mode: FolderDropDelegate.Mode
+    let section: String?
+    func body(content: Content) -> some View {
+        if enabled { content.folderDropTarget(model, path: path, mode: mode, section: section) } else { content }
     }
 }
 
@@ -249,5 +278,24 @@ struct FolderRowDrop: ViewModifier {
     let entry: FileEntry
     func body(content: Content) -> some View {
         if entry.isDirectory { content.folderDropTarget(model, path: entry.path) } else { content }
+    }
+}
+
+/// Drag to resize the sidebar. The width is stored in UserDefaults by the @AppStorage binding.
+struct SidebarDivider: View {
+    @Binding var width: Double
+    @State private var start: Double?
+    var body: some View {
+        Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1)
+            .overlay {
+                Color.clear.frame(width: 9).contentShape(Rectangle())
+                    .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { v in
+                            if start == nil { start = width }
+                            width = min(max((start ?? width) + v.translation.width, 90), 320)
+                        }
+                        .onEnded { _ in start = nil })
+            }
     }
 }

@@ -18,6 +18,7 @@ struct LocalSearchApp: App {
 
 struct AppCommands: Commands {
     let model: AppModel
+    @AppStorage("showSidebar") private var showSidebar = true
     @Environment(\.openWindow) private var openWindow
     private var editingText: Bool { NSApp.keyWindow?.firstResponder is NSText }
     var body: some Commands {
@@ -53,6 +54,12 @@ struct AppCommands: Commands {
             Button("Copy File Text for AI") { model.copyFileText() }.keyboardShortcut("c", modifiers: [.command, .option, .shift])
         }
         CommandMenu("Go") {
+            Menu("Add SSH Location") {
+                let have = Set(model.networkLocations.compactMap { $0.kind == .ssh ? $0.host : nil })
+                let hosts = SSHConfig.hosts().filter { !have.contains($0) }
+                if hosts.isEmpty { Text("No more hosts in ~/.ssh/config") }
+                ForEach(hosts, id: \.self) { h in Button(h) { model.addSSHLocation(h) } }
+            }
             Button("Quick Find…") { model.showQuickFind = true }.keyboardShortcut("f")
             Divider()
             Button("Back") { model.goBack() }.keyboardShortcut("[")
@@ -64,6 +71,7 @@ struct AppCommands: Commands {
             Button("Show History") { openWindow(id: "history") }.keyboardShortcut("y")
         }
         CommandMenu("View") {
+            Button(showSidebar ? "Hide Sidebar" : "Show Sidebar") { showSidebar.toggle() }.keyboardShortcut("s", modifiers: [.command, .control])
             Button("Show Hidden Files") { model.toggleHidden() }.keyboardShortcut(".", modifiers: [.command, .shift])
             Button("Bigger Text") { model.textSize = min(20, model.textSize + 1) }.keyboardShortcut("+")
             Button("Smaller Text") { model.textSize = max(10, model.textSize - 1) }.keyboardShortcut("-")

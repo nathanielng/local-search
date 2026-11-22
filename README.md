@@ -67,7 +67,7 @@ with right-click › Add to Special Folders on a folder. A brand-new database ca
 { "special_folders": [ { "title": "Notes", "path": "~/some/folder" } ] }
 ```
 
-That file lives outside the repo. The signing certificate for stable folder permissions is described in
+`network_locations` (SMB and SSH servers, shown in Locations) are configured in the same file; see [docs/NETWORK.md](docs/NETWORK.md). That file lives outside the repo. The signing certificate for stable folder permissions is described in
 [docs/SIGNING.md](docs/SIGNING.md).
 
 ## MCP server
