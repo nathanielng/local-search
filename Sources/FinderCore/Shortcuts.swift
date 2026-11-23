@@ -18,7 +18,17 @@ public struct ShortcutDef: Sendable, Equatable, Identifiable {
     public let scope: String
     public let note: String?
 
+    public init(id: String, section: String, title: String, key: String, mods: [Mod], scope: String, note: String?) {
+        self.id = id; self.section = section; self.title = title; self.key = key; self.mods = mods; self.scope = scope; self.note = note
+    }
+
+    /// Menu and panel shortcuts can be changed; keys that work only inside a list or dialog are fixed.
+    public var rebindable: Bool { scope == "App" || scope == "Command panel" }
+    /// Turned off by you in shortcuts.json.
+    public var isOff: Bool { key.isEmpty }
+
     public var display: String {
+        if isOff { return "—" }
         let names = ["up": "↑", "down": "↓", "return": "↩", "delete": "⌫", "space": "Space", "escape": "Esc", "tab": "⇥"]
         return mods.sorted().map(\.symbol).joined() + (names[key] ?? key.uppercased())
     }
@@ -96,15 +106,28 @@ public enum Shortcuts {
         d("settings", "App", "Settings", ",", [c]),
     ]
 
+    /// The built-in shortcut, before any of your changes.
+    public static func base(_ id: String) -> ShortcutDef? { all.first { $0.id == id } }
+
     public static func def(_ id: String) -> ShortcutDef {
-        guard let s = all.first(where: { $0.id == id }) else { preconditionFailure("unknown shortcut \(id)") }
+        guard let s = base(id) else { preconditionFailure("unknown shortcut \(id)") }
         return s
+    }
+
+    /// The list with your changes applied. A shortcut you turned off has an empty key.
+    public static func effective(_ o: ShortcutOverrides) -> [ShortcutDef] {
+        all.map { d in
+            guard d.rebindable, let v = o.keys[d.id] else { return d }
+            if v == ShortcutOverrides.none { return ShortcutDef(id: d.id, section: d.section, title: d.title, key: "", mods: [], scope: d.scope, note: d.note) }
+            guard let c = Chord.parse(v) else { return d }
+            return ShortcutDef(id: d.id, section: d.section, title: d.title, key: c.key, mods: c.mods, scope: d.scope, note: d.note)
+        }
     }
 
     /// Pairs of shortcuts that use the same keys in the same place.
     public static func clashes(_ list: [ShortcutDef] = all) -> [(String, String)] {
         var seen: [String: String] = [:], out: [(String, String)] = []
-        for s in list {
+        for s in list where !s.isOff {
             if let other = seen[s.signature] { out.append((other, s.id)) } else { seen[s.signature] = s.id }
         }
         return out

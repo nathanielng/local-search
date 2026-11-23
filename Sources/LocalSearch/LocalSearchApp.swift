@@ -137,6 +137,8 @@ extension ShortcutDef {
         case "space": .space
         case "escape": .escape
         case "tab": .tab
+        case "left": .leftArrow
+        case "right": .rightArrow
         default: KeyEquivalent(Character(key))
         }
     }
@@ -149,8 +151,8 @@ extension ShortcutDef {
 
 extension View {
     /// Attach a shortcut from the catalog, so menus and the shortcuts window can't disagree.
-    func shortcut(_ id: String) -> some View {
-        let s = Shortcuts.def(id)
-        return keyboardShortcut(s.keyEquivalent, modifiers: s.eventModifiers)
+    @ViewBuilder func shortcut(_ id: String) -> some View {
+        let s = ShortcutStore.shared.def(id)
+        if s.isOff { self } else { keyboardShortcut(s.keyEquivalent, modifiers: s.eventModifiers) }
     }
 }

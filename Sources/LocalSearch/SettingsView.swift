@@ -11,6 +11,7 @@ struct SettingsView: View {
             PreviewSettings().tabItem { Label("Previews", systemImage: "eye") }
             NetworkSettings().tabItem { Label("Network", systemImage: "network") }
             LocationsSettings().tabItem { Label("Locations", systemImage: "folder.badge.gearshape") }
+            ShortcutSettings().tabItem { Label("Shortcuts", systemImage: "command") }
         }
         .frame(width: 560, height: 520)
     }

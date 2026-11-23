@@ -49,7 +49,7 @@ public struct ActionContext: Sendable {
     public var selection: [String]          // full paths
     public var home: String
     public var hasTool: @Sendable (String) -> Bool
-    /// Features this build can provide for `requires` (none yet: cloud, s3 and llm come later).
+    /// Features that are available here, for `requires`: "git" when the folder is in a repository (cloud, s3 and llm come later).
     public var supported: Set<String>
     public var isDirectory: @Sendable (String) -> Bool
     public var exists: @Sendable (String) -> Bool
@@ -153,7 +153,10 @@ public enum Actions {
 
     public static func availability(of a: Action, in ctx: ActionContext) -> Availability {
         for r in a.requires ?? [] where !ctx.supported.contains(r) {
-            return .unavailable("Needs \(r), which isn't set up in this version yet")
+            switch r {
+            case "git": return .unavailable("This folder isn't in a git repository (no .git folder here or above)")
+            default: return .unavailable("Needs \(r), which isn't set up in this version yet")
+            }
         }
         if a.notInHome == true, (ctx.folder as NSString).standardizingPath == (ctx.home as NSString).standardizingPath {
             return .unavailable("Not offered in your home folder (it would take too long)")

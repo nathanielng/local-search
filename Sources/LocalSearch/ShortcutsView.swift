@@ -9,7 +9,7 @@ struct ShortcutsView: View {
     private var sections: [(String, [ShortcutDef])] {
         let q = filter.trimmingCharacters(in: .whitespaces).lowercased()
         var order: [String] = [], groups: [String: [ShortcutDef]] = [:]
-        for s in Shortcuts.all {
+        for s in ShortcutStore.shared.list {
             if !q.isEmpty, !(s.title.lowercased().contains(q) || s.display.lowercased().contains(q) || s.section.lowercased().contains(q)
                              || (s.note ?? "").lowercased().contains(q)) { continue }
             if groups[s.section] == nil { order.append(s.section) }
@@ -39,7 +39,7 @@ struct ShortcutsView: View {
                         }
                     }
                     if sections.isEmpty { Text("No shortcut matches “\(filter)”").foregroundStyle(.secondary) }
-                    Text("Most of these are also in the menus. In menus, the shortcut shows beside each item.")
+                    Text("Most of these are also in the menus. Change them in Settings > Shortcuts.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(16).frame(maxWidth: .infinity, alignment: .leading)

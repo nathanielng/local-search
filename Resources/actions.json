@@ -1,5 +1,5 @@
 {
- "version": 5,
+ "version": 6,
  "actions": [
   {
    "id": "zip",
@@ -740,15 +740,315 @@
    ]
   },
   {
-   "id": "git-status",
-   "title": "Git status",
-   "group": "Utilities",
-   "description": "Show which files changed in this git folder.",
-   "command": "git status --short --branch",
-   "needs": "none",
+   "group": "Git",
    "tool": "git",
+   "requires": [
+    "git"
+   ],
+   "needs": "none",
+   "id": "git-status",
+   "title": "Status",
+   "description": "Show which files changed, which are staged, and the branch you're on.",
+   "command": "git status --short --branch",
+   "baseLabel": "Short",
    "explain": [
-    "git status — what changed since the last commit"
+    "git status — what changed since the last commit",
+    "--short — one line per file; two letters show staged then unstaged",
+    "--branch — also shows the branch and how far it is from its remote"
+   ],
+   "variants": [
+    {
+     "id": "full",
+     "title": "Full",
+     "description": "The long form, with hints about what to do next.",
+     "command": "git status",
+     "explain": [
+      "git status — the full report, with suggestions for each state"
+     ]
+    },
+    {
+     "id": "ignored",
+     "title": "Include ignored",
+     "description": "Also list files that .gitignore hides.",
+     "command": "git status --short --branch --ignored",
+     "explain": [
+      "--ignored — also show files that git is told to leave alone"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "Git",
+   "tool": "git",
+   "requires": [
+    "git"
+   ],
+   "needs": "none",
+   "id": "git-log",
+   "title": "Log",
+   "description": "The latest commits, one per line.",
+   "command": "git log --oneline --decorate -20",
+   "baseLabel": "Last 20",
+   "explain": [
+    "git log --oneline — one short line per commit",
+    "--decorate — show branch and tag names beside the commits it applies to",
+    "-20 — only the latest 20"
+   ],
+   "variants": [
+    {
+     "id": "graph",
+     "title": "Graph, all branches",
+     "description": "Show how branches split and merge.",
+     "command": "git log --oneline --graph --decorate --all -30",
+     "explain": [
+      "--graph — draw the branch structure",
+      "--all — include every branch, not just this one",
+      "-30 — the latest 30"
+     ]
+    },
+    {
+     "id": "detail",
+     "title": "With author and date",
+     "description": "Each commit with who made it and when.",
+     "command": "git log --date=short --pretty=format:'%h  %ad  %an  %s' -30",
+     "explain": [
+      "--pretty=format — choose the columns: short id, date, author, message",
+      "-30 — the latest 30"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "Git",
+   "tool": "git",
+   "requires": [
+    "git"
+   ],
+   "needs": "none",
+   "id": "git-diff",
+   "title": "Diff",
+   "description": "What changed in your files since the last commit, as a summary.",
+   "command": "git diff --stat",
+   "baseLabel": "Summary",
+   "explain": [
+    "git diff — compare your files with the last commit",
+    "--stat — a summary: each file and how many lines changed"
+   ],
+   "variants": [
+    {
+     "id": "full",
+     "title": "Full changes",
+     "description": "Every changed line.",
+     "command": "git diff",
+     "explain": [
+      "git diff — every added and removed line, not saved yet"
+     ]
+    },
+    {
+     "id": "staged",
+     "title": "Staged only",
+     "description": "What will go into the next commit.",
+     "command": "git diff --staged",
+     "explain": [
+      "--staged — compare what you've staged with the last commit"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "Git",
+   "tool": "git",
+   "requires": [
+    "git"
+   ],
+   "needs": "none",
+   "id": "git-branches",
+   "title": "Branches",
+   "description": "List branches, and which commit each one is on.",
+   "command": "git branch -vv",
+   "baseLabel": "Local",
+   "explain": [
+    "git branch -vv — local branches with their latest commit and the remote branch they follow"
+   ],
+   "variants": [
+    {
+     "id": "all",
+     "title": "Include remote",
+     "description": "Also the branches on the remote.",
+     "command": "git branch -a -vv",
+     "explain": [
+      "-a — include remote branches too"
+     ]
+    },
+    {
+     "id": "remotes",
+     "title": "Remotes",
+     "description": "Show where this repository fetches from and pushes to.",
+     "command": "git remote -v",
+     "explain": [
+      "git remote -v — the names and web addresses of the remotes"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "Git",
+   "tool": "git",
+   "requires": [
+    "git"
+   ],
+   "needs": "one",
+   "id": "git-file-history",
+   "title": "File history",
+   "description": "Every commit that changed the selected file, following renames.",
+   "command": "git log --oneline --follow -- {{file}}",
+   "baseLabel": "Commits",
+   "explain": [
+    "git log --oneline — one short line per commit",
+    "--follow — keep going through renames",
+    "-- {{file}} — only commits that touched this file"
+   ],
+   "variants": [
+    {
+     "id": "changes",
+     "title": "With the changes",
+     "description": "Show what changed in each commit, for this file.",
+     "command": "git log -p --follow -- {{file}}",
+     "explain": [
+      "-p — include the actual lines changed in each commit"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "Git",
+   "tool": "git",
+   "requires": [
+    "git"
+   ],
+   "needs": "some",
+   "id": "git-stage",
+   "title": "Stage selected",
+   "description": "Add the selected files to the next commit.",
+   "command": "git add -- {{selection}}",
+   "explain": [
+    "git add — put these files in the next commit",
+    "-- — what follows is file names, never options"
+   ]
+  },
+  {
+   "group": "Git",
+   "tool": "git",
+   "requires": [
+    "git"
+   ],
+   "needs": "some",
+   "id": "git-unstage",
+   "title": "Unstage selected",
+   "description": "Take the selected files out of the next commit. Your edits stay.",
+   "command": "git reset -q -- {{selection}}",
+   "explain": [
+    "git reset — take them back out of the next commit",
+    "the files themselves are not changed"
+   ]
+  },
+  {
+   "group": "Git",
+   "tool": "git",
+   "requires": [
+    "git"
+   ],
+   "needs": "none",
+   "id": "git-commit",
+   "title": "Commit staged",
+   "description": "Save the staged files as a commit with your message.",
+   "command": "m={{ask:Commit message=}}; [ -n \"$m\" ] || { echo \"Type a commit message in the box above first.\"; exit 1; }; git commit -m \"$m\"",
+   "confirm": true,
+   "explain": [
+    "The message you type in the box becomes the commit message",
+    "git commit -m — save everything staged as a new commit",
+    "Nothing is sent anywhere; Push does that"
+   ]
+  },
+  {
+   "group": "Git",
+   "tool": "git",
+   "requires": [
+    "git"
+   ],
+   "needs": "none",
+   "id": "git-pull",
+   "title": "Pull",
+   "description": "Bring in the remote's new commits, only if that needs no merge.",
+   "command": "git pull --ff-only",
+   "confirm": true,
+   "baseLabel": "Fast-forward only",
+   "explain": [
+    "git pull — fetch the remote's commits and move this branch forward",
+    "--ff-only — refuse if a merge would be needed, so your history is never rewritten"
+   ],
+   "variants": [
+    {
+     "id": "fetch",
+     "title": "Fetch only",
+     "description": "Download the remote's commits without changing your files.",
+     "command": "git fetch --all --prune",
+     "confirm": false,
+     "explain": [
+      "git fetch --all — download new commits from every remote",
+      "--prune — forget remote branches that were deleted",
+      "your files and branches are not changed"
+     ]
+    }
+   ]
+  },
+  {
+   "group": "Git",
+   "tool": "git",
+   "requires": [
+    "git"
+   ],
+   "needs": "none",
+   "id": "git-push",
+   "title": "Push",
+   "description": "Send your commits on this branch to its remote.",
+   "command": "git push",
+   "confirm": true,
+   "explain": [
+    "git push — upload your new commits to the remote",
+    "Asks first because other people may see them"
+   ]
+  },
+  {
+   "group": "Git",
+   "tool": "git",
+   "requires": [
+    "git"
+   ],
+   "needs": "none",
+   "id": "git-stash",
+   "title": "Stash changes",
+   "description": "Put your uncommitted changes aside, safely, to bring back later.",
+   "command": "git stash push --include-untracked -m {{ask:Name=work in progress}}",
+   "confirm": true,
+   "baseLabel": "Stash",
+   "explain": [
+    "git stash push — set the changes aside and clean the working folder",
+    "--include-untracked — include new files git hasn't seen yet",
+    "-m — a name so you can recognise it",
+    "Bring it back later with: git stash pop"
+   ],
+   "variants": [
+    {
+     "id": "list",
+     "title": "List stashes",
+     "description": "Show what's been set aside.",
+     "command": "git stash list",
+     "confirm": false,
+     "explain": [
+      "git stash list — every stash, newest first"
+     ]
+    }
    ]
   }
  ]

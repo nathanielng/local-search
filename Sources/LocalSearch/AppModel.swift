@@ -78,6 +78,7 @@ final class AppModel {
         networkLocations = NetworkLocation.load()
         watchVolumes()
         watchSettings()
+        ShortcutStore.shared.watch()
         loadActions()
         if s == nil { warning = "History database could not be opened; nothing will be saved." }
         // Only the visible tab loads at launch.

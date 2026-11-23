@@ -37,6 +37,7 @@ struct PaneDivider: View {
     @Binding var height: Double
     let maxHeight: Double
     var inverted = false
+    var minHeight: Double? = nil
     @State private var start: Double?
     var body: some View {
         Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
@@ -47,7 +48,7 @@ struct PaneDivider: View {
                         .onChanged { v in
                             if start == nil { start = height }
                             let dy = inverted ? -v.translation.height : v.translation.height
-                            height = min(max((start ?? height) + dy, inverted ? 120 : 80), maxHeight)
+                            height = min(max((start ?? height) + dy, minHeight ?? (inverted ? 120 : 80)), maxHeight)
                         }
                         .onEnded { _ in start = nil })
             }

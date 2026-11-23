@@ -12,6 +12,8 @@ struct ContentView: View {
     @AppStorage("showCommands") private var showCommands = false
     @AppStorage("showRightPanel") private var showRightPanel = true
     @AppStorage("rightPanelWidth") private var rightPanelWidth = 240.0
+    @AppStorage("commandPanelHeight") private var commandHeight = 300.0
+    @State private var columnHeight: CGFloat = 800
 
     var body: some View {
         content.overlay { if model.showQuickFind { QuickFindView() } }
@@ -30,7 +32,12 @@ struct ContentView: View {
                 Divider()
                 if showKindBadges { KindBadgeBar(); Divider() }
                 FileListView()
-                if showCommands { Divider(); CommandPanel() }
+                if showCommands {
+                    // Drag the line above the panel to make it taller or shorter; the file list keeps at least ~200 pt.
+                    PaneDivider(height: $commandHeight, maxHeight: max(Double(columnHeight) - 330, 200), inverted: true, minHeight: 150)
+                    // The height is set here, by the drag handle above; it never exceeds what leaves the file list ~200 pt.
+                    CommandPanel().frame(height: min(max(commandHeight, 150), max(Double(columnHeight) - 330, 200)))
+                }
                 if let job = model.copyJob { TransferBar(job: job, waiting: model.jobQueue.count) }
                 else if let label = model.backgroundLabel {
                     HStack(spacing: 6) { ProgressView().controlSize(.small); Text(label).font(.caption); Spacer() }.padding(6)
@@ -47,6 +54,7 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 480)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { columnHeight = $0 }
             if showRightPanel && (showVerticalTabs || showRecent || showInfo) {
                 RightDivider(width: $rightPanelWidth)
                 RightPanel().frame(width: min(max(rightPanelWidth, 160), 480))
@@ -66,7 +74,7 @@ struct TabBar: View {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             Button { showSidebar.toggle() } label: { Image(systemName: "sidebar.left") }
-                .buttonStyle(.plain).padding(.leading, 10).padding(.top, 10).help("Show or hide the sidebar (⌃⌘S)")
+                .buttonStyle(.plain).padding(.leading, 10).padding(.top, 10).help("Show or hide the sidebar\(ShortcutStore.shared.hint("sidebar"))")
             // Tabs wrap onto up to three rows; beyond that the area scrolls.
             ScrollView(.vertical, showsIndicators: false) {
                 TabFlowLayout {
@@ -81,9 +89,9 @@ struct TabBar: View {
             .frame(height: min(contentHeight, maxHeight))
             Button { model.newTab() } label: { Image(systemName: "plus") }.buttonStyle(.plain).padding(.leading, 8).padding(.top, 10)
             Button { model.showQuickFind = true } label: { Image(systemName: "magnifyingglass") }
-                .buttonStyle(.plain).padding(.leading, 10).padding(.top, 10).help("Quick Find (⌘F)")
+                .buttonStyle(.plain).padding(.leading, 10).padding(.top, 10).help("Quick Find\(ShortcutStore.shared.hint("quickFind"))")
             Button { RightPanelState.toggle() } label: { Image(systemName: "sidebar.right") }
-                .buttonStyle(.plain).padding(.horizontal, 10).padding(.top, 10).help("Show or hide the right panel (⌃⌘P)")
+                .buttonStyle(.plain).padding(.horizontal, 10).padding(.top, 10).help("Show or hide the right panel\(ShortcutStore.shared.hint("rightPanel"))")
         }
     }
 }
@@ -174,13 +182,13 @@ struct NavBar: View {
     var body: some View {
         HStack(spacing: 6) {
             Button { model.goBack() } label: { navIcon("chevron.left") }
-                .disabled(model.current.back.isEmpty).help("Back (⌘[)")
+                .disabled(model.current.back.isEmpty).help("Back\(ShortcutStore.shared.hint("back"))")
             Button { model.goForward() } label: { navIcon("chevron.right") }
-                .disabled(model.current.forward.isEmpty).help("Forward (⌘])")
+                .disabled(model.current.forward.isEmpty).help("Forward\(ShortcutStore.shared.hint("forward"))")
             Button { model.goUp() } label: { navIcon("arrow.up") }
-                .disabled(model.current.parentPath == nil).help("Enclosing folder (⌘↑)")
+                .disabled(model.current.parentPath == nil).help("Enclosing folder\(ShortcutStore.shared.hint("up"))")
             Button { toggleRecent() } label: { navIcon(recentShown ? "clock.fill" : "clock") }
-                .help(recentShown ? "Hide Recent Locations (⌃⌘R)" : "Show Recent Locations (⌃⌘R)")
+                .help((recentShown ? "Hide Recent Locations" : "Show Recent Locations") + ShortcutStore.shared.hint("recent"))
             TextField("Path", text: $text)
                 .textFieldStyle(.roundedBorder).focused($focused)
                 .onSubmit { model.navigate(text, .typed); focused = false }
@@ -203,7 +211,7 @@ struct NavBar: View {
             } label: { Image(systemName: "calendar") }
                 .menuIndicator(.hidden).fixedSize().help("Date column: Added or Modified, Modified, or Added")
             Button { model.toggleHidden() } label: { Image(systemName: model.showHidden ? "eye" : "eye.slash") }
-                .help(model.showHidden ? "Hide hidden files (⇧⌘.)" : "Show hidden files such as .ssh and .config (⇧⌘.)")
+                .help((model.showHidden ? "Hide hidden files" : "Show hidden files such as .ssh and .config") + ShortcutStore.shared.hint("hidden"))
             Button { model.toggleFavorite() } label: {
                 Image(systemName: model.store?.isFavorite(model.current.path) == true ? "star.fill" : "star")
             }
@@ -368,7 +376,7 @@ extension SidebarView {
                 Text("Web Locations")
                 Spacer()
                 Button { openWindow(id: "web-locations") } label: { Image(systemName: "magnifyingglass") }
-                    .buttonStyle(.plain).help("Search Web Locations (⇧⌘L)")
+                    .buttonStyle(.plain).help("Search Web Locations\(ShortcutStore.shared.hint("webLocations"))")
             }
         }
     }

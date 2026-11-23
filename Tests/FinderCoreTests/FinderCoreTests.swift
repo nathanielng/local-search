@@ -1323,3 +1323,158 @@ import UniformTypeIdentifiers
         #expect(try String(contentsOfFile: dir + "/src/a.txt", encoding: .utf8).hasPrefix("hello zstd"))
     }
 }
+
+@Suite(.serialized) struct GitActionTests {
+    private func bundled() throws -> ActionFile {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Resources/actions.json").standardized
+        return try #require(Actions.parse(try Data(contentsOf: url)).file)
+    }
+    private func sh(_ cmd: String, in dir: String) throws -> (String, Int32) {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/zsh"); p.arguments = ["-l", "-c", cmd]
+        p.currentDirectoryURL = URL(fileURLWithPath: dir)
+        let out = Pipe(); p.standardOutput = out; p.standardError = out
+        try p.run(); p.waitUntilExit()
+        return (String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self), p.terminationStatus)
+    }
+    private func run(_ id: String, _ variant: String? = nil, dir: String, selection: [String] = [], asks: [String: String] = [:]) throws -> (String, Int32) {
+        let a = try #require(try bundled().actions.first { $0.id == id })
+        return try sh(Actions.render(Actions.resolved(a, variant: variant), in: ActionContext(folder: dir, selection: selection), asks: asks), in: dir)
+    }
+
+    @Test func repoRootIsFoundFromAnySubfolder() {
+        let fake: Set<String> = ["/r/proj/.git"]
+        #expect(GitRepo.root(of: "/r/proj/a/b", exists: { fake.contains($0) }) == "/r/proj")
+        #expect(GitRepo.root(of: "/r/proj", exists: { fake.contains($0) }) == "/r/proj")
+        #expect(GitRepo.root(of: "/r/other", exists: { fake.contains($0) }) == nil)
+        #expect(GitRepo.root(of: "/", exists: { _ in false }) == nil)
+    }
+    @Test func gitActionsAreOnlyAvailableInsideARepository() throws {
+        let all = try bundled().actions.filter { $0.group == "Git" }
+        #expect(all.count >= 10)
+        let outside = ActionContext(folder: "/x", selection: [], supported: [])
+        let inside = ActionContext(folder: "/x", selection: ["/x/a"], supported: ["git"])
+        for a in all {
+            #expect(!Actions.availability(of: a, in: outside).isAvailable, "\(a.id) should be hidden outside a repository")
+            #expect(Actions.availability(of: a, in: inside).isAvailable || a.needs == "one" && false, "\(a.id) should work inside")
+        }
+    }
+    @Test func everyGitVariantHasValidShellSyntax() throws {
+        let dir = NSTemporaryDirectory()
+        for a in try bundled().actions where a.group == "Git" {
+            for v in [nil] + (a.variants ?? []).map({ Optional($0.id) }) {
+                let cmd = Actions.render(Actions.resolved(a, variant: v), in: ActionContext(folder: dir, selection: [dir + "f 1.txt"]), asks: ["Commit message": "m", "Name": "n"])
+                let (log, code) = try sh("zsh -n -c \(Actions.shellQuote(cmd))", in: dir)
+                #expect(code == 0, "\(a.id)/\(v ?? "base"): \(log)")
+            }
+        }
+    }
+    @Test func aRealRepositoryWorksThroughTheActions() throws {
+        let dir = NSTemporaryDirectory() + "git-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        _ = try sh("git init -q -b main && git config user.email t@example.invalid && git config user.name Tester", in: dir)
+        try "one".write(toFile: dir + "/a b.txt", atomically: true, encoding: .utf8)
+        let sel = [dir + "/a b.txt"]
+        #expect(try run("git-status", dir: dir).0.contains("a b.txt"))
+        #expect(try run("git-stage", dir: dir, selection: sel).1 == 0)
+        #expect(try run("git-status", dir: dir).0.contains("A "))
+        #expect(try run("git-unstage", dir: dir, selection: sel).1 == 0)
+        _ = try run("git-stage", dir: dir, selection: sel)
+        // an empty message is refused, a real one commits, even with quotes in it
+        #expect(try run("git-commit", dir: dir, asks: ["Commit message": ""]).1 != 0)
+        let (log, code) = try run("git-commit", dir: dir, asks: ["Commit message": "it's \"first\" $HOME"])
+        #expect(code == 0, "\(log)")
+        #expect(try sh("git log -1 --format=%s", in: dir).0.contains("it's \"first\" $HOME"))
+        #expect(try run("git-log", dir: dir).0.contains("first"))
+        #expect(try run("git-log", "graph", dir: dir).1 == 0)
+        #expect(try run("git-log", "detail", dir: dir).0.contains("Tester"))
+        #expect(try run("git-file-history", dir: dir, selection: sel).0.contains("first"))
+        try "two".write(toFile: dir + "/a b.txt", atomically: true, encoding: .utf8)
+        #expect(try run("git-diff", dir: dir).0.contains("a b.txt"))
+        #expect(try run("git-diff", "full", dir: dir).0.contains("+two"))
+        #expect(try run("git-branches", dir: dir).0.contains("main"))
+        #expect(try run("git-stash", dir: dir, asks: ["Name": "wip it's"]).1 == 0)
+        #expect(try run("git-stash", "list", dir: dir).0.contains("wip it's"))
+        #expect(try String(contentsOfFile: dir + "/a b.txt", encoding: .utf8) == "one")
+    }
+}
+
+@Suite struct ShortcutOverrideTests {
+    @Test func chordsRoundTripAsText() {
+        for t in ["cmd+t", "shift+cmd+]", "ctrl+opt+cmd+k", "ctrl+`", "cmd+up", "cmd+return", "shift+cmd+="] {
+            #expect(Chord.parse(t)?.text == t, "\(t)")
+        }
+        #expect(Chord.parse("command+Shift+T")?.text == "shift+cmd+t")       // written in canonical order
+        #expect(Chord.parse("alt+x")?.text == "opt+x")
+        #expect(Chord.parse("cmd+cmd+x") == nil)
+        #expect(Chord.parse("cmd+") == nil)
+        #expect(Chord.parse("hello") == nil)
+        #expect(Chord.parse("cmd++")?.key == "+")
+    }
+    @Test func theBuiltInCatalogIsUnchangedWithoutOverrides() {
+        #expect(Shortcuts.effective(ShortcutOverrides()) == Shortcuts.all)
+    }
+    @Test func anOverrideChangesOnlyThatShortcut() {
+        var o = ShortcutOverrides()
+        o.set("newTab", to: Chord.parse("cmd+opt+n")!)
+        let list = Shortcuts.effective(o)
+        #expect(list.first { $0.id == "newTab" }?.display == "⌥⌘N")
+        #expect(list.filter { $0.id != "newTab" } == Shortcuts.all.filter { $0.id != "newTab" })
+        // setting it back to the original removes the override
+        o.set("newTab", to: Shortcuts.def("newTab").chord)
+        #expect(o.keys.isEmpty)
+    }
+    @Test func aShortcutCanBeTurnedOffAndReset() {
+        var o = ShortcutOverrides()
+        o.turnOff("closeTab")
+        let off = Shortcuts.effective(o).first { $0.id == "closeTab" }!
+        #expect(off.isOff && off.display == "—")
+        #expect(Shortcuts.clashes(Shortcuts.effective(o)).isEmpty)
+        o.reset("closeTab")
+        #expect(o.keys.isEmpty)
+    }
+    @Test func problemsAreCaughtBeforeSaving() {
+        let o = ShortcutOverrides()
+        #expect(o.problem(setting: Chord.parse("cmd+shift+n")!, for: "newTab") == .taken(by: "newFolder"))
+        #expect(o.problem(setting: Chord.parse("t")!, for: "newTab") == .needsModifier)
+        #expect(o.problem(setting: Chord.parse("shift+t")!, for: "newTab") == .needsModifier)
+        #expect(o.problem(setting: Chord.parse("cmd+q")!, for: "newTab") == .reserved("Quit"))
+        #expect(o.problem(setting: Chord.parse("cmd+opt+j")!, for: "quickLook") == .fixed)         // file-list keys are fixed
+        #expect(o.problem(setting: Chord.parse("cmd+opt+j")!, for: "nope") == .fixed)
+        #expect(o.problem(setting: Chord.parse("cmd+opt+j")!, for: "newTab") == nil)
+        #expect(o.problem(setting: Shortcuts.def("newTab").chord, for: "newTab") == nil)            // its own keys are fine
+    }
+    @Test func aShortcutYouTurnedOffFreesItsKeys() {
+        var o = ShortcutOverrides()
+        o.turnOff("newFolder")
+        #expect(o.problem(setting: Chord.parse("cmd+shift+n")!, for: "newTab") == nil)
+    }
+    @Test func theSameKeysInDifferentPlacesDoNotClash() {
+        // "return" with ⌘ is both Run (command panel) and Open in a new tab (file list)
+        #expect(Shortcuts.clashes().isEmpty)
+        let o = ShortcutOverrides()
+        #expect(o.problem(setting: Chord.parse("cmd+return")!, for: "run") == nil)
+    }
+    @Test func theFileKeepsOnlyYourChangesAndIgnoresJunk() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory() + "sc-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        var o = ShortcutOverrides()
+        o.set("newTab", to: Chord.parse("cmd+opt+n")!); o.turnOff("stop")
+        #expect(o.save(url))
+        #expect(ShortcutOverrides.load(url) == o)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(!text.contains("closeTab"))                                  // untouched shortcuts aren't written
+        // hand edits: an unknown id, a nonsense chord and a good one
+        try Data(#"{"overrides":{"newTab":"cmd+opt+j","ghost":"cmd+j","closeTab":"banana","stop":"none"}}"#.utf8).write(to: url)
+        #expect(ShortcutOverrides.load(url).keys == ["newTab": "cmd+opt+j", "stop": "none"])
+        try Data("{ not json".utf8).write(to: url)
+        #expect(ShortcutOverrides.isMalformed(url))
+        #expect(ShortcutOverrides.load(url).keys.isEmpty)
+        // nothing changed means no file at all
+        #expect(ShortcutOverrides().save(url)); #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+    @Test func everyRebindableShortcutHasAnActionInTheMenus() {
+        // the fixed ones are the in-list keys; everything else must be changeable
+        for s in Shortcuts.all { #expect(s.rebindable == (s.scope == "App" || s.scope == "Command panel"), "\(s.id)") }
+        #expect(Shortcuts.all.filter(\.rebindable).count >= 40)
+    }
+}

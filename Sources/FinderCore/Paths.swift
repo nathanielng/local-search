@@ -22,6 +22,8 @@ public enum AppPaths {
     }
     public static var databaseURL: URL { supportDir.appendingPathComponent("localsearch.sqlite") }
     public static var settingsURL: URL { supportDir.appendingPathComponent("settings.json") }
+    /// Only the shortcuts you changed (the built-in list lives in the app).
+    public static var shortcutsURL: URL { supportDir.appendingPathComponent("shortcuts.json") }
     public static var home: String { NSHomeDirectory() }
 }
 

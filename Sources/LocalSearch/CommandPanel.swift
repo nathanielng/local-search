@@ -6,7 +6,6 @@ import FinderCore
 struct CommandPanel: View {
     @Environment(AppModel.self) private var model
     @AppStorage("showCommands") private var showCommands = false
-    @AppStorage("commandPanelHeight") private var panelHeight = 300.0
     @State private var picked: Action?
     @State private var variantID: String?
     @State private var asks: [String: String] = [:]
@@ -46,7 +45,6 @@ struct CommandPanel: View {
             Divider()
             output
         }
-        .frame(height: min(max(panelHeight, 180), 600))
         .background(.background)
         .onChange(of: model.selection) { _, _ in refreshIfUnedited() }
         .onChange(of: model.current.path) { _, _ in refreshIfUnedited() }
@@ -67,7 +65,7 @@ struct CommandPanel: View {
                 .help("Also show actions that don't fit the selection, with the reason")
             Button { NSWorkspace.shared.open(AppModel.actionsURL) } label: { Image(systemName: "doc.text") }
                 .buttonStyle(.plain).help("Open actions.json to edit or add actions")
-            Button { showCommands = false } label: { Image(systemName: "xmark") }.buttonStyle(.plain).help("Close (⌃`)")
+            Button { showCommands = false } label: { Image(systemName: "xmark") }.buttonStyle(.plain).help("Close\(ShortcutStore.shared.hint("commands"))")
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
     }

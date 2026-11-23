@@ -32,6 +32,7 @@ extension AppModel {
 
     var actionContext: ActionContext {
         ActionContext(folder: current.path, selection: selectedEntries.map(\.path),
+                      supported: GitRepo.root(of: current.path) != nil ? ["git"] : [],
                       hasTool: { Self.toolExists($0) })
     }
 
